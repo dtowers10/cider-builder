@@ -1,0 +1,67 @@
+<!doctype html>
+<!-- Source of docs/assets/og.png. Regenerate with docs/assets/render-og.sh -->
+<meta charset="utf-8">
+<style>
+@font-face { font-family: "Geist"; src: url("../../bin/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Geist Mono"; src: url("../../bin/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; }
+:root { --bg: #000; --fg: #ededed; --muted: #8f8f8f; --dim: #5a5a5a; --line: #1f1f1f; --ok: #4ade80; --run: #60a5fa; }
+* { box-sizing: border-box; margin: 0; }
+html, body { width: 1200px; height: 630px; background: var(--bg); color: var(--fg); overflow: hidden; }
+body {
+  font-family: "Geist", sans-serif; padding: 64px 72px; display: grid; grid-template-columns: 1fr 560px; gap: 56px;
+  background-image: radial-gradient(circle at 1px 1px, #161616 1px, transparent 0); background-size: 24px 24px;
+}
+.mono { font-family: "Geist Mono", monospace; }
+.left { display: flex; flex-direction: column; }
+.brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 16px #4ade8066; }
+h1 { margin-top: 52px; font-size: 50px; line-height: 1.04; font-weight: 600; letter-spacing: -0.045em; }
+h1 span { color: var(--muted); }
+.sub { margin-top: 22px; font-size: 18px; line-height: 1.45; color: var(--muted); letter-spacing: -0.01em; }
+.tags { margin-top: 16px; display: flex; gap: 8px; font-size: 13px; color: var(--muted); }
+.tags span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; background: #0a0a0a; }
+
+.term { align-self: center; border: 1px solid var(--line); border-radius: 12px; background: #0a0a0a; overflow: hidden;
+  box-shadow: 0 30px 80px #000, 0 0 0 1px #ffffff08 inset; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.bar i { width: 11px; height: 11px; border-radius: 50%; background: #262626; }
+.bar b { margin-left: auto; margin-right: auto; font-weight: 400; font-size: 12px; color: var(--dim); transform: translateX(-28px); }
+pre { font-family: "Geist Mono", monospace; font-size: 14.5px; line-height: 1.75; padding: 20px 22px 22px; color: var(--muted); white-space: pre; }
+.p { color: var(--dim); } .c { color: var(--fg); } .ok { color: var(--ok); } .run { color: var(--run); } .path { color: var(--fg); }
+
+.flow { margin-top: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.flow .node { border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; background: #0a0a0a; color: var(--fg); }
+.flow .arrow { color: var(--dim); }
+.flow .macs { display: flex; gap: 4px; }
+.flow .macs i { width: 8px; height: 8px; border-radius: 2px; background: #2a2a2a; }
+.flow .macs i.busy { background: var(--run); }
+</style>
+<body>
+  <div class="left">
+    <div class="brand"><span class="dot"></span>Cider Builder</div>
+    <h1>Build iOS and Android apps on a fleet of Macs.<br><span>From any machine.</span></h1>
+    <p class="sub">A hub picks a free Mac, builds, and hands back the artifact. Built before? It comes straight from the cache.</p>
+    <div class="flow mono">
+      <span class="node">client</span><span class="arrow">──▶</span>
+      <span class="node">hub</span><span class="arrow">──▶</span>
+      <span class="macs"><i></i><i class="busy"></i><i></i><i></i></span>
+      <span>macs</span>
+    </div>
+    <div class="tags mono"><span>Expo</span><span>React Native</span><span>Xcode</span><span>Gradle</span></div>
+  </div>
+
+  <div class="term">
+    <div class="bar"><i></i><i></i><i></i><b class="mono">~/src/my-app</b></div>
+<pre><span class="p">$</span> <span class="c">cider-build ios</span>
+Project my-app (expo). Computing the cache key (ios)…
+Uploading the changes: 3 of 1284 files (24K)…
+Queued: position 1.
+Building on <span class="run">mac-mini-2</span>…
+<span class="ok">Built on mac-mini-2 in 94 s.</span> Downloading…
+<span class="path">~/.cache/cider-build/my-app/3f9c2a1e-ios.app</span>
+
+<span class="p">$</span> <span class="c">cider-build ios</span>
+<span class="ok">In the local cache (3f9c2a1e).</span>
+<span class="path">~/.cache/cider-build/my-app/3f9c2a1e-ios.app</span></pre>
+  </div>
+</body>

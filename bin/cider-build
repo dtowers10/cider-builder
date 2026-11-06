@@ -1,0 +1,450 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # the <kind>_excl are read by name through ${!excl_var}
+# cider-build <ios|android> [project folder]
+#   Builds the app's native client on the Mac fleet and puts it on this machine.
+#   The last line of output is the path of the .app (iOS simulator) or the .apk.
+#   Projects: Expo, React Native, native iOS (Xcode) and native Android (Gradle).
+#   If that native version already exists (here or on the hub) or is being built, it is not built again.
+#   Only the files the hub lacks from this project's last upload are uploaded (otherwise, the whole project).
+#   CIDER_BUILD_FORCE=1 ignores the caches and uploads the whole project; CIDER_BUILD_CACHE_KEEP=5 versions per
+#   platform stay cached here. Optional settings in .cider-build.json (ios.scheme, ios.workspace|project,
+#   ios.configuration, android.task, android.apk). Ctrl-C stops waiting and, if nobody else is waiting for
+#   that build and nobody warmed it, cancels it. After 90 s without an answer from the hub it stops waiting
+#   and leaves the build running.
+# cider-build warm [ios] [android] [project folder]
+#   Starts the hub builds of this native version (both platforms by default) and returns without
+#   waiting or downloading, so a later `cider-build ios|android` only downloads. For a post-merge hook or a cron.
+#   Prints one line per platform: already cached, queued (job id), already building (job id), or
+#   cancelled on the hub (job id) if the job was cancelled before its source arrived (then exits 1).
+# cider-build status
+#   Builder Macs, used slots, builds in progress, queue and recently finished builds.
+# cider-build hub [URL]
+#   Prints the hub this client uses and where it comes from; with URL, saves it (install.sh client does that).
+#   CIDER_BUILD_HUB in the environment overrides the saved hub.
+# cider-build add <mac> [slots] [--user U]
+#   Over Tailscale SSH as root to <mac> on the hub's tailnet domain (or <mac> as typed if it has a dot), runs
+#   on that Mac the same as `curl -fsSL <hub>/join | bash`: sets it up (Xcode already installed; installs the
+#   rest), installs its agent and adds it to the fleet. Slots = concurrent builds; default 1 per 24 GB of RAM.
+#   --user is the macOS user that builds (default: the one that has the agent, else whoever is logged in).
+#   Safe to repeat.
+# cider-build remove <mac>
+#   Stops sending it builds, waits for its own to finish and removes its agent.
+# cider-build hub-install [<user>@<host>] [--set KEY=VALUE]...
+#   Installs or updates the hub server from this repository: uploads install.sh and bin/ over SSH and runs
+#   install.sh hub there with the options given. Without <user>@<host>: this client's hub, as the user it runs as.
+#   A hub with no update_url yet updates itself from this clone's remote and branch.
+set -euo pipefail
+
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/cider-build/hub  # written only by `cider-build hub URL`
+# Before the rename to Cider Builder the client was mac-build: its saved hub and its MAC_BUILD_* variables still
+# work, and the new ones win.
+SAVED=$CONF
+[ -r "$SAVED" ] || [ ! -r "${CONF%/cider-build/hub}/mac-build/hub" ] || SAVED=${CONF%/cider-build/hub}/mac-build/hub
+HUB_ENV=CIDER_BUILD_HUB
+[ -n "${CIDER_BUILD_HUB:-}" ] || [ -z "${MAC_BUILD_HUB:-}" ] || HUB_ENV=MAC_BUILD_HUB
+HUB_URL=${!HUB_ENV:-}
+if [ -z "$HUB_URL" ] && [ -r "$SAVED" ]; then read -r HUB_URL <"$SAVED" || true; fi
+HUB_URL=${HUB_URL%/}
+SSHO=(-o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new)
+say() { printf '%s\n' "$*" >&2; }
+die() { say "$1"; exit "${2:-1}"; }
+api() { curl -sS --fail-with-body --connect-timeout 10 "$@"; }
+
+need_hub() {
+  [ -n "$HUB_URL" ] || die "cider-build does not know its hub. Install it from your hub:
+  curl -fsSL https://<hub>:4710/bin/install.sh | bash -s client
+or tell it which one: cider-build hub https://<hub>:4710" 2
+}
+
+hub_host() { # host part of HUB_URL
+  local h=${HUB_URL#*://}
+  h=${h%%/*}
+  printf '%s\n' "${h%:*}"
+}
+
+mac_target() { # <mac>: root@ what ssh reaches. Builder Macs are on the hub's tailnet, so they share its domain.
+  local h
+  case $1 in *.*) printf 'root@%s\n' "$1"; return ;; esac
+  h=$(hub_host)
+  case $h in
+    *[!0-9.]*.*) printf 'root@%s.%s\n' "$1" "${h#*.}" ;;
+    *) printf 'root@%s\n' "$1" ;;  # an IP or a short name: the Mac's MagicDNS short name
+  esac
+}
+
+hub_cmd() { # [URL]
+  local url
+  if [ $# -eq 0 ]; then
+    need_hub
+    printf '%s\n' "$HUB_URL"
+    if [ -n "${!HUB_ENV:-}" ]; then say "(from $HUB_ENV)"; else say "(saved in $SAVED)"; fi
+    return
+  fi
+  url=${1%/}
+  case $url in http://?*|https://?*) ;; *) die "The hub is a URL, e.g.: cider-build hub https://buildhub.example.ts.net:4710" 2 ;; esac
+  mkdir -p "${CONF%/*}"
+  printf '%s\n' "$url" >"$CONF.tmp" && mv "$CONF.tmp" "$CONF"
+  say "Hub: $url (saved in $CONF)"
+  [ -z "${!HUB_ENV:-}" ] || say "$HUB_ENV=${!HUB_ENV} in this environment still takes precedence."
+  api -o /dev/null "$url/status" || say "It does not answer yet."
+}
+
+# Tailscale SSH on the Macs always exits 0: the real exit code travels in the last line.
+# The script goes over stdin and is read in full before running it, so brew/sdkmanager do not eat the rest.
+rsh() {
+  local out rc f
+  f=$(mktemp)
+  ssh "${SSHO[@]}" "$1" 'bash -c "$(cat)" cider-build </dev/null; printf "\n__rc=%s\n" $?' <<<"$2" >"$f" &
+  wait $! || true
+  out=$(cat "$f"); rm -f "$f"
+  case $out in *__rc=*) rc=${out##*__rc=}; rc=${rc%%[!0-9]*} ;; *) rc=255 ;; esac
+  out=${out%__rc=*}; out=${out%$'\n'}
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+  return "${rc:-255}"
+}
+
+manage() { # add|remove <mac> [slots] [--user U]. install.sh worker does the work on the Mac itself, as root.
+  local op=$1 mac="" slots="" user="" target cmd
+  shift
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --user) [ "$op" = add ] && [ $# -ge 2 ] || die "Usage: cider-build add <mac> [slots] [--user U]" 2; user=$2; shift 2 ;;
+      -*) die "Unknown option: $1" 2 ;;
+      *) if [ -z "$mac" ]; then mac=$1; elif [ -z "$slots" ] && [ "$op" = add ]; then slots=$1
+         else die "Usage: cider-build add <mac> [slots] [--user U] | cider-build remove <mac>" 2; fi; shift ;;
+    esac
+  done
+  [ -n "$mac" ] || die "Missing the Mac, e.g.: cider-build $op mac-mini-2" 2
+  case $slots in ""|[1-9]|[1-9][0-9]) ;; *) die "Slots must be a number between 1 and 99." 2 ;; esac
+  target=$(mac_target "$mac")
+  if [ "$op" = add ]; then
+    cmd="set -o pipefail; curl -fsSL $(printf %q "$HUB_URL/join") | bash -s --${slots:+ --slots $slots}${user:+ --user $(printf %q "$user")}"
+  else
+    # The hub first: that way it stops receiving jobs even if the Mac does not answer over SSH.
+    api -X DELETE "$HUB_URL/workers/${mac%%.*}" >/dev/null || die "Cannot talk to the hub ($HUB_URL)."
+    cmd="set -o pipefail; curl -fsSL $(printf %q "$HUB_URL/bin/install.sh") | bash -s -- worker --remove"
+  fi
+  rsh "$target" "$cmd" >&2 || {
+    [ $? -eq 255 ] && die "Cannot reach $target over SSH. That Mac must be on the hub's tailnet and accept Tailscale SSH
+as root from this machine (on the Mac: sudo tailscale up --ssh, and a tailnet policy that allows it). Then repeat:
+  cider-build $op $mac
+Or, without SSH, on the Mac itself as its user: curl -fsSL $HUB_URL/join | bash"
+    die "cider-build $op $mac failed (details above)."; }
+  api "$HUB_URL/status"
+}
+
+hub_install() { # [<user>@<host>] [install.sh hub options...]
+  local root target="" user opts="" tmp=/tmp/cider-build-install s
+  root=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+  [ -f "$root/install.sh" ] && [ -f "$root/bin/cider-build-hub" ] ||
+    die "hub-install runs from a clone of the Cider Builder repository; cannot find $root/install.sh." 2
+  case ${1:-} in ""|-*) ;; *) target=$1; shift ;; esac
+  if [ -z "$target" ]; then
+    need_hub
+    user=$(api "$HUB_URL/api/state" | python3 -c 'import json, sys; print(json.load(sys.stdin)["hub"].get("user") or "")') &&
+      [ -n "$user" ] || die "Cannot ask $HUB_URL which user runs it. Say where to install: cider-build hub-install <user>@<host>" 2
+    target=$user@$(hub_host)
+  fi
+  case $target in ?*@?*) ;; *) die "hub-install <user>@<host>: <user> is the macOS account that runs the hub." 2 ;; esac
+  [ $# -eq 0 ] || opts=$(printf ' %q' "$@")
+  # The copy uploaded to the hub has no git, so install.sh hears where it came from here. A path on this machine
+  # means nothing on the hub.
+  if s=$(bash "$root/install.sh" source "$root"); then
+    case $s in /*|.*|file:*) ;; *) opts=$(printf ' --source %q %q' "${s%%$'\n'*}" "${s#*$'\n'}")$opts ;; esac
+  fi
+  say "Uploading the project to $target…"
+  rsh "$target" "rm -rf $tmp && mkdir -p $tmp" >/dev/null || die "Cannot reach $target."
+  scp -q -r "${SSHO[@]}" "$root/install.sh" "$root/bin" "$target:$tmp/" || die "Copying to the hub failed."
+  rsh "root@${target#*@}" "bash $tmp/install.sh hub --user $(printf %q "${target%%@*}")$opts; rc=\$?; rm -rf $tmp; exit \$rc" >&2 ||
+    die "Installing on the hub failed."
+  [ -z "$HUB_URL" ] || api -o /dev/null "$HUB_URL/status" || die "The hub is not responding at $HUB_URL."
+}
+
+case "${1:-}" in
+  hub) shift; hub_cmd "$@"; exit ;;
+  status) need_hub; api "$HUB_URL/status" || die "Cannot talk to the hub ($HUB_URL)."; exit ;;
+  add|remove) need_hub; manage "$@"; exit ;;
+  hub-install) shift; hub_install "$@"; exit ;;
+  warm) need_hub; mode=warm; shift ;;
+  ios|android) need_hub; mode=build; plat=$1; shift ;;
+  *) sed -n '3,/^set -e/{/^#/p;}' "$0" >&2; exit 2 ;;
+esac
+plats=() dir=.
+if [ "$mode" = warm ]; then
+  for a; do case $a in ios|android) plats+=("$a") ;; *) dir=$a ;; esac; done
+else
+  plats=("$plat") dir=${1:-.}
+fi
+cd "$dir"
+# The project's settings; .mac-build.json is their name from before the rename, and still works.
+cfgfile=.cider-build.json
+[ -f "$cfgfile" ] || [ ! -f .mac-build.json ] || cfgfile=.mac-build.json
+command -v python3 >/dev/null || die "python3 is missing on this machine." 2
+
+# Project kinds. Each kind defines <kind>_detect, <kind>_key and <kind>_excl; build_<kind> lives in build.sh.
+jsdeps=$( [ -f package.json ] && python3 -c '
+import json
+p = json.load(open("package.json")); d = {**p.get("dependencies", {}), **p.get("devDependencies", {})}
+print("expo" if "expo" in d else "react-native" if "react-native" in d else "")' || true)
+find_node() {
+  local n; n=$(command -v node || ls -d "$HOME"/.local/share/mise/installs/node/*/bin/node 2>/dev/null | tail -1) || true
+  [ -n "$n" ] && dirname "$n"
+}
+fingerprint() {
+  local bin; bin=$(find_node) || return 1
+  [ -d node_modules/@expo/fingerprint ] || return 1
+  PATH="$bin:$PATH" npx --no-install @expo/fingerprint fingerprint:generate --platform "$plat" 2>/dev/null |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["hash"])'
+}
+srchash() {
+  { if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git ls-files -co --exclude-standard
+    else find . -type d \( -name .git -o -name node_modules -o -name build -o -name .gradle -o -name DerivedData \
+      -o -name .build -o -name Pods -o -name xcuserdata -o -name .idea -o -name .cxx \) -prune -o -type f -print | sed 's|^\./||'; fi
+    echo "$cfgfile"; } | python3 -c '
+import hashlib, os, sys
+h = hashlib.sha1()
+for p in sorted(set(l.rstrip("\n") for l in sys.stdin)):
+    if os.path.isfile(p) and p != "local.properties":
+        h.update(p.encode() + b"\0" + hashlib.sha1(open(p, "rb").read()).digest())
+print(h.hexdigest())'
+}
+with_cfg() { if [ -f "$cfgfile" ]; then { echo "$1"; cat "$cfgfile"; } | python3 -c 'import hashlib, sys; print(hashlib.sha1(sys.stdin.buffer.read()).hexdigest())'; else echo "$1"; fi; }
+
+expo_detect() { [ "$jsdeps" = expo ]; }
+expo_key() { local f; f=$(fingerprint) || die "Could not compute the fingerprint. Are node and the dependencies (node_modules) installed?"; with_cfg "$f"; }
+expo_excl='.git node_modules /ios /android .expo dist web-build'
+
+react_native_detect() { [ "$jsdeps" = react-native ] && [ -d ios ] && [ -d android ]; }
+react_native_key() { local f; if f=$(fingerprint) && [ -n "$f" ]; then with_cfg "$f"; else srchash; fi; }
+react_native_excl='.git node_modules ios/Pods ios/build android/build android/app/build android/.gradle .gradle local.properties vendor/bundle'
+
+ios_native_detect() {
+  local f; [ "$plat" = ios ] && [ -z "$jsdeps" ] || return 1
+  for f in ./*.xcworkspace ./*.xcodeproj ./Package.swift; do [ -e "$f" ] && return 0; done; return 1
+}
+ios_native_key() { srchash; }
+ios_native_excl='.git node_modules build DerivedData .build Pods xcuserdata'
+
+android_native_detect() { [ "$plat" = android ] && [ -z "$jsdeps" ] && [ -f gradlew ]; }
+android_native_key() { srchash; }
+android_native_excl='.git node_modules build .gradle .idea .cxx local.properties'
+
+proj=$(git remote get-url origin 2>/dev/null || true); proj=${proj%.git}; proj=${proj##*[/:]}
+[ -n "$proj" ] || proj=$( [ -f package.json ] && python3 -c 'import json; print(json.load(open("package.json")).get("name", ""))' || true)
+proj=${proj##*/}; [ -n "$proj" ] || proj=$(basename "$PWD")
+proj=$(printf '%s' "$proj" | tr -c 'A-Za-z0-9._-' _)
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/cider-build/$proj"
+force=${CIDER_BUILD_FORCE:-${MAC_BUILD_FORCE:-}}
+client=$(hostname -s 2>/dev/null || hostname); client=${client%%.*}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+# prepare <ios|android>: kind, excl, cfg, key and file of this project for that platform. Fails if no kind matches.
+prepare() {
+  plat=$1 kind=""
+  local k excl_var
+  for k in expo react_native ios_native android_native; do "${k}_detect" && { kind=$k; break; }; done
+  [ -n "$kind" ] || return 1
+  excl_var=${kind}_excl; excl=${!excl_var}
+  cfg=$(EXCL=$excl CFGFILE=$cfgfile python3 -c '
+import json, os
+c = json.load(open(os.environ["CFGFILE"])) if os.path.exists(os.environ["CFGFILE"]) else {}
+i, a = c.get("ios", {}), c.get("android", {})
+print(json.dumps({"EXCL": os.environ["EXCL"], "MB_SCHEME": i.get("scheme", ""), "MB_CONTAINER": i.get("workspace") or i.get("project") or "",
+                  "MB_CONFIG": i.get("configuration", "Debug"), "MB_TASK": a.get("task", "assembleDebug"), "MB_APK": a.get("apk", "")}))') ||
+    die "$cfgfile is not valid JSON." 2
+  say "Project $proj (${kind//_/-}). Computing the cache key ($plat)…"
+  key="${kind//_/-}-$("${kind}_key")"
+  [ "$plat" = ios ] && ext=app.tar.gz || ext=apk
+  file="$key-$plat.$ext"
+}
+no_kind() { die "No $plat project recognized in $(pwd): looking for Expo, React Native (with ios/ and android/), an Xcode project or a gradlew." 2; }
+
+# submit_job [waiter]: asks the hub for this key. Sets what (cached|job), job, need (1 = upload the source)
+# and, without a waiter (a warm-up), how (new|joined).
+submit_job() {
+  local r
+  r=$(api -X POST "$HUB_URL/submit" --data-urlencode "proj=$proj" --data-urlencode "key=$key" --data-urlencode "plat=$plat" \
+    --data-urlencode "kind=$kind" --data-urlencode "cfg=$cfg" --data-urlencode "client=$client" ${1:+--data-urlencode "waiter=$1"} \
+    --data-urlencode "force=$force") || die "Cannot talk to the hub ($HUB_URL). ${r:+It answered: $r}"
+  read -r what job need how <<<"$r"
+}
+
+# Incremental upload. Both modes read `tar -c` of the same files as the full upload, from stdin.
+#   manifest OUT              OUT = gzip of [[name, f|d|l, mode, mtime, sha256 | link target | ""], ...]
+#   pack MANIFEST NEED OUT    OUT = tar.gz with the files whose sha256 is in NEED, each named by its sha256
+# shellcheck disable=SC2016
+delta_py='
+import gzip, hashlib, json, sys, tarfile
+t = tarfile.open(fileobj=sys.stdin.buffer, mode="r|")
+def members():
+    for m in t:
+        if not (m.isfile() or m.isdir() or m.issym()):
+            sys.exit("%s is neither a file, a folder nor a symlink" % m.name)
+        yield m
+def sha(f):
+    h = hashlib.sha256()
+    for b in iter(lambda: f.read(1 << 20), b""):
+        h.update(b)
+    return h.hexdigest()
+if sys.argv[1] == "manifest":
+    out = [[m.name, "f" if m.isfile() else "d" if m.isdir() else "l", m.mode, m.mtime,
+            sha(t.extractfile(m)) if m.isfile() else m.linkname if m.issym() else ""] for m in members()]
+    with open(sys.argv[2], "wb") as f:
+        f.write(gzip.compress(json.dumps(out).encode()))
+else:
+    files = [e for e in json.loads(gzip.open(sys.argv[2]).read()) if e[1] == "f"]
+    need = set(open(sys.argv[3]).read().split())
+    want = {e[0]: e[4] for e in files if e[4] in need}
+    sent = 0
+    with tarfile.open(sys.argv[4], "w:gz") as o:
+        for m in members():
+            h = want.get(m.name)
+            if h in need:
+                need.discard(h)
+                ti = tarfile.TarInfo(h)
+                ti.size = m.size
+                o.addfile(ti, t.extractfile(m))
+                sent += 1
+    if need:
+        sys.exit("%d files changed while uploading" % len(need))
+    print("%d of %d files" % (sent, len(files)))
+'
+upload_delta() { # 0 if the hub now has the whole source; otherwise says why and returns 1
+  local n why=""
+  [ -z "$force" ] || return 1
+  if ! tar -cf - "${tx[@]}" . | python3 -c "$delta_py" manifest "$tmp/manifest.gz"; then why="could not list the project"
+  elif ! api -X POST -H "Content-Type: application/octet-stream" --data-binary @"$tmp/manifest.gz" -o "$tmp/need" \
+      "$HUB_URL/source/manifest?job=$job" 2>"$tmp/err"; then why=$(cat "$tmp/need" "$tmp/err" 2>/dev/null | head -1)
+  elif ! n=$(tar -cf - "${tx[@]}" . | python3 -c "$delta_py" pack "$tmp/manifest.gz" "$tmp/need" "$tmp/delta.tar.gz"); then
+    why="could not package the changes"
+  else
+    say "Uploading the changes: $n ($(du -h "$tmp/delta.tar.gz" | cut -f1))…"
+    api -T "$tmp/delta.tar.gz" -o "$tmp/resp" "$HUB_URL/source/delta?job=$job" 2>"$tmp/err" && return 0
+    why=$(cat "$tmp/resp" "$tmp/err" 2>/dev/null | head -1)
+  fi
+  say "No incremental upload (${why:-unknown error}); uploading the whole project."
+  return 1
+}
+
+upload_source() { # tx is seen by upload_delta (bash dynamic scope). $tmp/resp: the job's state the hub answered
+  local tx=() e
+  set -f; for e in $excl; do tx+=(--exclude "${e/#\//./}"); done; set +f
+  upload_delta && return 0
+  tar -czf "$tmp/src.tar.gz" "${tx[@]}" . || die "Could not package the project."
+  say "Uploading the project ($(du -h "$tmp/src.tar.gz" | cut -f1))…"
+  api -T "$tmp/src.tar.gz" -o "$tmp/resp" "$HUB_URL/source?job=$job" || die "Uploading the project to the hub failed."
+}
+
+if [ "$mode" = warm ]; then
+  explicit=${#plats[@]} rc=0
+  [ "$explicit" -gt 0 ] || plats=(ios android)
+  for p in "${plats[@]}"; do
+    if ! prepare "$p"; then
+      [ "$explicit" -eq 0 ] || no_kind
+      echo "$p: no $p project here, skipped"; continue
+    fi
+    submit_job
+    if [ "$what" = cached ]; then echo "$p: already cached ($key)"; continue; fi
+    st=queued
+    if [ "$need" = 1 ]; then upload_source; st=$(head -1 "$tmp/resp"); fi
+    case $st in
+      queued|assigned|building)
+        if [ "$how" = new ]; then echo "$p: queued (job $job)"; else echo "$p: already building (job $job)"; fi ;;
+      *) echo "$p: ${st:-unknown} on the hub (job $job)"; rc=1 ;;
+    esac
+  done
+  exit $rc
+fi
+
+prepare "$plat" || no_kind
+mkdir -p "$cache"
+
+finish() {
+  local out=$cache/$file t
+  if [ "$plat" = ios ]; then
+    out=$cache/$key-ios.app
+    if [ ! -d "$out" ] || [ "$cache/$file" -nt "$out" ]; then
+      t=$(mktemp -d "$cache/.unpack.XXXXXX")
+      tar -xzf "$cache/$file" -C "$t"
+      rm -rf "$out"
+      python3 -c 'import glob, os, sys; os.rename(glob.glob(sys.argv[1] + "/*.app")[0], sys.argv[2])' "$t" "$out" 2>/dev/null || [ -d "$out" ]
+      rm -rf "$t"
+    fi
+  fi
+  touch -c "$cache/$file" "$out"  # recency for prune(); same instant, so the .app is not re-unpacked
+  prune
+  echo "$out"; exit 0
+}
+# Keeps the CIDER_BUILD_CACHE_KEEP (default 5) most recently used artifacts of this project and platform;
+# an .app.tar.gz goes with its unpacked .app.
+prune() {
+  local keep=${CIDER_BUILD_CACHE_KEEP:-${MAC_BUILD_CACHE_KEEP:-5}} f n=0
+  case $keep in ''|*[!0-9]*|0) keep=5 ;; esac
+  while IFS= read -r f; do
+    n=$((n + 1))
+    [ "$n" -gt "$keep" ] && [ "$f" != "$file" ] || continue
+    rm -f "$cache/$f"
+    if [ "$plat" = ios ]; then rm -rf "$cache/${f%.app.tar.gz}.app"; fi
+  done < <(cd "$cache" && ls -t -- *"-$plat.$ext" 2>/dev/null || true)
+}
+[ -z "$force" ] && [ -s "$cache/$file" ] && { say "In the local cache ($key)."; finish; }
+
+fetch() {
+  api -o "$cache/$file.tmp.$$" "$HUB_URL/cache/$proj/$file" && mv "$cache/$file.tmp.$$" "$cache/$file"
+}
+
+waiter=$client-$$-$RANDOM
+heard=$SECONDS  # the hub last counted us no earlier than this: when we sent the submit or the last answered poll
+submit_job "$waiter"
+if [ "$what" = cached ]; then
+  say "In the hub cache ($key). Downloading…"
+  fetch || die "Could not download from the hub."
+  finish
+fi
+
+detach() { api -X POST "$HUB_URL/detach?job=$job&waiter=$waiter" >/dev/null 2>&1 || true; }
+trap 'detach; say "No longer waiting for build $job."; exit 130' INT
+trap 'detach; exit 143' TERM
+
+
+if [ "$need" = 1 ]; then
+  upload_source
+else
+  say "This same version is already on the hub (job $job); waiting for its result."
+fi
+
+# The hub stops counting a waiter WAITER_TTL (120 s) after its last poll, and then someone else's Ctrl-C cancels
+# the build. So this client gives up first: no new poll after PATIENCE s without an answer, and each poll lasts
+# at most POLL_MAX s, so it stops waiting within PATIENCE + 2 + POLL_MAX = 107 s of the last request the hub
+# counted. Giving up does not cancel the build; running cider-build again joins it or downloads it.
+PATIENCE=90 POLL_MAX=15
+off=0 shown="" lastpos="" lastmsg=-30 t0=$SECONDS
+while :; do
+  sent=$SECONDS
+  if ! api --max-time "$POLL_MAX" -o "$tmp/poll" "$HUB_URL/poll?job=$job&waiter=$waiter&offset=$off" 2>"$tmp/err"; then
+    [ $((SECONDS - heard)) -lt "$PATIENCE" ] ||
+      die "The hub has not answered for $PATIENCE s ($(head -c 300 "$tmp/err")). No longer waiting for build $job, which goes on: run cider-build again to pick it up."
+    sleep 2; continue
+  fi
+  heard=$sent
+  head=$(head -1 "$tmp/poll")
+  read -r st wk pos rc off <<<"$head"
+  tail -c +$((${#head} + 2)) "$tmp/poll" >&2
+  case $st in
+    queued)
+      if [ "$pos" != "$lastpos" ] || [ $((SECONDS - lastmsg)) -ge 30 ]; then
+        say "Queued: position $pos."; lastpos=$pos lastmsg=$SECONDS shown=""
+      fi ;;
+    assigned|building)
+      if [ "$wk" != "$shown" ]; then say "Building on $wk…"; shown=$wk lastpos=""; fi ;;
+    done) break ;;
+    failed) die "The build failed on $wk (exit code $rc)." ;;
+    cancelled) die "The build was cancelled on the hub." ;;
+  esac
+  sleep 2
+done
+trap - INT TERM
+say "Built on $wk in $((SECONDS - t0)) s. Downloading…"
+fetch || die "Could not download the result from the hub."
+finish

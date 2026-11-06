@@ -1,0 +1,5 @@
+tools/*.jar
+states/
+*_TTrace_*
+*.out
+__pycache__/

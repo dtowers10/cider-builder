@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:,">
+<title>Cider Builder · panel</title>
+<style>
+@font-face { font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+:root {
+  color-scheme: dark;
+  --bg: #000000; --fg: #ededed; --muted: #8f8f8f; --line: #1f1f1f; --hover: #0f0f0f; --strong: #3a3a3a;
+  --ok: #4ade80; --warn: #facc15; --bad: #f87171; --info: #a78bfa; --idle: #6b6b6b; --run: #60a5fa;
+  --bar: 48px;
+  --sans: "Geist", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-padding-top: 64px; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--strong); text-underline-offset: 3px; }
+a:hover { text-decoration-color: currentColor; }
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+button, input, select { font: inherit; color: inherit; }
+button { background: transparent; border: 1px solid var(--strong); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--fg); }
+button:disabled { opacity: .4; cursor: not-allowed; }
+button.danger { color: var(--bad); border-color: currentColor; }
+button.danger:hover:not(:disabled) { background: var(--bad); color: var(--bg); border-color: var(--bad); }
+input, select { background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; min-width: 0; }
+input:hover, select:hover { border-color: var(--strong); }
+.mono, code, pre, table, .kv dd, .meter-row, .summary, .conn, .toast { font-family: var(--mono); font-size: 12px; }
+.mono { font-variant-ligatures: none; }
+.muted { color: var(--muted); }
+.err { color: var(--bad); }
+
+.side { position: fixed; top: 0; left: 0; bottom: 0; z-index: 6; width: 220px; display: flex; flex-direction: column;
+        padding: 0 0 14px; background: var(--bg); border-right: 1px solid var(--line); overflow-y: auto; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; height: var(--bar); padding: 17px 18px 0;
+         border-bottom: 1px solid var(--line); }
+.brand h1 { font: 600 14px/1 var(--mono); letter-spacing: -.01em; margin: 0; white-space: nowrap; }
+.brand .mono { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-btn { display: none; }
+.side nav { flex: 1; padding: 14px 10px 0; }
+.side ul { list-style: none; margin: 0 0 18px; padding: 0; }
+.nav-group { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--idle); margin: 0 0 6px; padding: 0 10px; }
+.side nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; margin: 1px 0;
+              color: var(--muted); text-decoration: none; border-radius: 6px; }
+.side nav a:hover { color: var(--fg); background: var(--hover); }
+.side nav a[aria-current="page"] { color: var(--fg); background: #1a1a1a; font-weight: 500; }
+.nav-count { display: flex; gap: 10px; font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.nav-count > span { display: inline-flex; align-items: center; gap: 5px; }
+.side .conn { padding: 12px 18px 0; border-top: 1px solid var(--line); }
+.content { margin-left: 220px; min-width: 0; }
+.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; min-height: var(--bar); padding: 0 24px;
+        background: var(--bg); border-bottom: 1px solid var(--line); }
+.summary { display: flex; flex-wrap: wrap; gap: 4px 22px; color: var(--muted); }
+.summary b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+.conn { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--bad); }
+.dot.out { background: var(--info); }
+.dot.run { background: var(--run); }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.banner { color: var(--bad); padding: 8px 24px; border-top: 1px solid var(--bad); border-bottom: 1px solid var(--bad); font-weight: 500; }
+main { padding: 28px 24px 64px; max-width: 1400px; margin: 0 auto; }
+section { margin-bottom: 48px; }
+h2 { font-size: 13px; font-weight: 600; margin: 0 0 14px; }
+h3 { font-size: 13px; font-weight: 500; margin: 26px 0 10px; color: var(--muted); }
+h2 + h3 { margin-top: 0; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); border-top: 1px solid var(--line);
+         border-left: 1px solid var(--line); }
+.card { display: block; padding: 16px 18px; color: inherit; text-decoration: none; border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line); }
+a.card:hover { background: var(--hover); }
+.cards > .empty { grid-column: 1 / -1; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 18px; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.card-head strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meter-row { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 10px; margin: 5px 0; }
+.meter-row > :first-child { font-family: var(--sans); }
+.meter { height: 2px; background: var(--line); overflow: hidden; }
+.meter span { display: block; height: 100%; background: var(--fg); }
+.meter span.full { background: var(--warn); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 14px 0 0; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.info { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font: 11.5px/1.6 var(--mono); color: var(--muted); }
+.info div { overflow-wrap: anywhere; }
+
+.badge { --c: var(--idle); display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); white-space: nowrap; color: var(--fg); }
+.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
+.b-online, .b-done { --c: var(--ok); }
+.b-no_tools, .b-nosrc { --c: var(--warn); }
+.b-drained { --c: var(--info); }
+.b-stale, .b-failed { --c: var(--bad); }
+.b-assigned, .b-building, .b-updating { --c: var(--run); }
+
+.tablewrap { overflow-x: auto; border-top: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 7px 14px 7px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 500 12px var(--sans); color: var(--muted); }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--hover); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.empty { padding: 10px 0; color: var(--muted); border-top: 1px solid var(--line); }
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.filters input[type=search] { flex: 1 1 240px; }
+.filters .count { margin-left: auto; color: var(--muted); font: 12px var(--mono); }
+.proj { margin-bottom: 18px; }
+.proj-head { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; font-weight: 600; border-bottom: 1px solid var(--line); }
+
+.cmd { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
+.cmd code { flex: 1; display: block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; overflow-x: auto; white-space: pre; }
+.note { color: var(--muted); margin: 14px 0 0; max-width: 72ch; }
+
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); z-index: 9; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, 100vw); z-index: 10; background: var(--bg);
+          border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.drawer-head h2 { flex: 1; margin: 0; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-body { overflow-y: auto; padding: 18px 20px 40px; flex: 1; }
+.drawer .kv { grid-template-columns: minmax(130px, auto) 1fr; margin: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+.toolbar input[type=number] { width: 72px; font-family: var(--mono); }
+.hint { color: var(--muted); }
+.log-status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; color: var(--muted); font: 12px var(--mono); margin: 8px 0; }
+pre.log { margin: 0; padding: 12px 14px; max-height: 62vh; min-height: 120px; overflow: auto; background: var(--hover); color: var(--fg);
+          border: 1px solid var(--line); border-radius: 4px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+dialog { border: 1px solid var(--strong); border-radius: 6px; padding: 20px 22px; background: var(--bg); color: var(--fg);
+         max-width: min(500px, 94vw); }
+dialog::backdrop { background: rgba(0, 0, 0, .7); }
+dialog h2 { margin-bottom: 12px; }
+dialog p { margin: 0 0 8px; }
+dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.toasts { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; flex-direction: column;
+          gap: 6px; width: min(560px, 94vw); }
+.toast { background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.toast.bad { background: var(--bad); color: #000; }
+@media (max-width: 860px) {
+  .side { position: sticky; bottom: auto; width: auto; flex-direction: row; align-items: center; gap: 16px; padding: 10px 16px;
+          border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .brand { flex: 1; height: auto; padding: 0; border-bottom: 0; }
+  .side .conn { order: 1; padding: 0; border-top: 0; }
+  #conntext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .menu-btn { display: block; order: 2; }
+  .side nav { display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: calc(100vh - 52px); overflow-y: auto;
+              padding: 12px 8px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .side.open nav { display: block; }
+  .content { margin-left: 0; }
+  .top { position: static; padding: 10px 16px; }
+}
+@media (max-width: 560px) {
+  .top { padding: 8px 14px; } main { padding: 20px 14px 48px; }
+  .cards { grid-template-columns: 1fr; }
+  .drawer .kv { grid-template-columns: 1fr; }
+  .drawer .kv dt { margin-top: 6px; }
+}
+</style>
+</head>
+<body>
+<header id="side" class="side">
+  <div class="brand"><h1>Cider Builder</h1><span id="hubname" class="mono"></span></div>
+  <button id="menu-btn" class="menu-btn" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+  <nav id="nav" aria-label="Views"></nav>
+  <div class="conn"><span id="conndot" class="dot"></span><span id="conntext">connecting…</span></div>
+</header>
+<div class="content">
+<div class="top"><div id="summary" class="summary"></div></div>
+<div id="banner" class="banner" role="alert" hidden></div>
+<main>
+  <section id="view-overview" hidden>
+    <h3>Fleet</h3><div id="ov-fleet"></div>
+    <h3>Building now</h3><div id="ov-running"></div>
+    <p id="ov-queued" class="note" hidden><a href="#/builds"></a></p>
+    <h3>Recent failures</h3><div id="ov-failures"></div>
+    <p class="note"><a id="ov-all-failures" href="#/history">All failures in History</a></p>
+  </section>
+  <section id="view-macs" hidden><div id="maclist" class="cards"></div></section>
+  <section id="view-add" hidden><div id="join"></div></section>
+  <section id="view-updates" hidden>
+    <h3>Hub</h3><div id="up-hub"></div>
+    <h3>Agents</h3><div id="up-agents"></div>
+  </section>
+  <section id="view-builds" hidden>
+    <h3>Running</h3><div id="running"></div>
+    <h3>Queue</h3><div id="queue"></div>
+  </section>
+  <section id="view-history" hidden>
+    <div class="filters">
+      <input id="f-q" type="search" placeholder="Search id, project, key, client or Mac" aria-label="Search">
+      <select id="f-state" aria-label="State">
+        <option value="">all states</option><option value="done">done</option><option value="failed">failed</option><option value="cancelled">cancelled</option>
+      </select>
+      <select id="f-plat" aria-label="Platform"></select>
+      <select id="f-mac" aria-label="Mac"></select>
+      <select id="f-client" aria-label="Client"></select>
+      <span id="f-count" class="count"></span>
+    </div>
+    <div id="histlist"></div>
+  </section>
+  <section id="view-cache" hidden><h3>Cache</h3><div id="cachelist"></div><h3>Affinity</h3><div id="afflist"></div></section>
+</main>
+</div>
+<div id="scrim" class="scrim" hidden></div>
+<aside id="drawer" class="drawer" aria-labelledby="drawer-title" hidden>
+  <div class="drawer-head"><h2 id="drawer-title"></h2><button id="drawer-close" type="button" aria-label="Close">Close</button></div>
+  <div id="drawer-body" class="drawer-body"></div>
+</aside>
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <h2 id="confirm-title"></h2>
+  <div id="confirm-body"></div>
+  <div class="actions"><button id="confirm-no" type="button">Keep it</button><button id="confirm-yes" type="button" class="danger"></button></div>
+</dialog>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+// Everything from the hub is external data: the DOM is built with h() and text nodes, never with HTML strings.
+const POLL_MS = 2000, MIN_MS = 1000, MAX_BACKOFF_MS = 10000, CACHE_MS = 30000;
+const LOG_TAIL = 1 << 20, LOG_CAP = 4e6, HISTORY_ROWS = 500;
+const ACTIVE = ["queued", "assigned", "building"];
+const $ = (id) => document.getElementById(id);
+const enc = encodeURIComponent;
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === "on") { for (const [ev, fn] of Object.entries(v)) el.addEventListener(ev, fn); continue; }
+    if (/^on|^style$|^srcdoc$/i.test(k)) throw new Error("attribute not allowed: " + k);
+    if (k === "href" && !/^(#|\/cache\/)/.test(v)) throw new Error("link not allowed: " + v);
+    if (k === "class") el.className = v;
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function show(v) { return v == null || v === "" ? "-" : typeof v === "object" ? JSON.stringify(v) : String(v); }
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function now() { return Date.now() / 1000 + S.skew; }
+function mmss(s) {
+  s = Math.max(0, Math.floor(s));
+  if (s >= 3600) return Math.floor(s / 3600) + "h" + String(Math.floor(s / 60) % 60).padStart(2, "0") + "m";
+  return Math.floor(s / 60) + "m" + String(s % 60).padStart(2, "0") + "s";
+}
+function ago(ts) {
+  if (!ts) return "never";
+  const s = Math.max(0, Math.floor(now() - num(ts)));
+  return (s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min" : s < 86400 ? Math.floor(s / 3600) + " h" : Math.floor(s / 86400) + " d") + " ago";
+}
+function when(ts) {
+  if (!ts) return "-";
+  return new Date(num(ts) * 1000).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function bytes(n) {
+  n = num(n);
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + " " + u[i];
+}
+function took(j) { return j.finished ? mmss(num(j.finished) - num(j.started || j.created)) : "-"; }
+// The hub sends state_text (the same text as cider-build status); the panel names each state by its code instead.
+const STATE_TEXT = { online: "online", stale: "no heartbeat", drained: "out of the pool", no_tools: "missing tools",
+  disabled: "disabled", nosrc: "no source yet", updating: "updating the agent" };
+function badge(code) { return h("span", { class: "badge b-" + String(code).replace(/[^a-z_]/g, ""), title: show(code) }, STATE_TEXT[code] || show(code)); }
+function since(ts) { return h("span", { "data-since": num(ts) }, mmss(now() - num(ts))); }
+function agoEl(ts) { return h("span", { "data-ago": num(ts) }, ago(ts)); }
+function jobHref(id) { return "#job/" + enc(String(id)); }
+function macHref(label) { return "#mac/" + enc(String(label)); }
+function macLink(label) { return label ? h("a", { href: macHref(label), class: "mono" }, show(label)) : "-"; }
+function kv(rows) { return h("dl", { class: "kv" }, rows.filter(Boolean).map(([k, v]) => [h("dt", null, k), h("dd", null, v instanceof Node ? v : show(v))])); }
+function table(head, rows, empty) {
+  if (!rows.length) return h("div", { class: "empty" }, empty);
+  return h("div", { class: "tablewrap" }, h("table", null,
+    h("thead", null, h("tr", null, head.map(([t, c]) => h("th", { class: c }, t)))), h("tbody", null, rows)));
+}
+function clickRow(href, cells) {
+  return h("tr", { class: "click", on: { click: (e) => { if (!e.target.closest("a")) location.hash = href; } } }, cells);
+}
+
+// --- state and polling ----------------------------------------------------------------------------
+
+const S = { st: null, hist: null, cache: null, skew: 0, okAt: 0, fails: 0, err: "", rev: null, cacheAt: 0, joinKey: "", updatesKey: "" };
+let timer = 0, busy = false, again = false, lastStart = 0;
+
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t.trim() || "HTTP " + r.status);
+  return JSON.parse(t);
+}
+function pollSoon(ms) {
+  clearTimeout(timer);
+  timer = setTimeout(poll, Math.max(ms, MIN_MS - (Date.now() - lastStart)));
+}
+async function poll() {
+  clearTimeout(timer);
+  if (document.hidden) return;
+  if (busy) { again = true; return; }
+  busy = true;
+  lastStart = Date.now();
+  try {
+    const st = await getJSON("/api/state");
+    Object.assign(S, { st, skew: st.now - Date.now() / 1000, okAt: Date.now(), fails: 0, err: "" });
+    renderState();
+    const more = [];
+    if (st.history_rev !== S.rev) more.push(loadHistory(st.history_rev), loadCache());
+    else if (Date.now() - S.cacheAt > CACHE_MS) more.push(loadCache());
+    await Promise.all(more);
+  } catch (e) {
+    S.fails++;
+    S.err = e.message;
+  } finally {
+    busy = false;
+    renderConn();
+  }
+  if (document.hidden) return;
+  const wait = again ? 0 : S.fails ? Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** (S.fails - 1)) : POLL_MS;
+  again = false;
+  pollSoon(wait);
+}
+async function loadHistory(rev) {
+  S.hist = await getJSON("/api/history");
+  S.rev = rev;
+  renderHistory();
+  renderOverview();
+  if (detail && detail.kind === "mac") renderMac(detail);
+}
+async function loadCache() {
+  S.cache = await getJSON("/api/cache");
+  S.cacheAt = Date.now();
+  renderCache();
+  if (detail && detail.kind === "mac") renderMac(detail);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSoon(0); });
+
+setInterval(() => {
+  for (const el of document.querySelectorAll("[data-since]")) el.textContent = mmss(now() - num(el.dataset.since));
+  for (const el of document.querySelectorAll("[data-ago]")) el.textContent = ago(num(el.dataset.ago));
+  renderConn();
+}, 1000);
+
+// --- header ---------------------------------------------------------------------------------------
+
+function renderConn() {
+  const down = S.fails > 0;
+  $("conndot").className = "dot " + (down ? "bad" : S.okAt ? "ok" : "");
+  $("conntext").textContent = S.okAt ? "updated " + ago(S.okAt / 1000 + S.skew) : "connecting…";
+  const b = $("banner");
+  b.hidden = !down;
+  const phase = S.st && S.st.release && S.st.release.phase;
+  if (down && (phase === "updating" || phase === "restarting")) b.textContent = "The hub is restarting on its new version. Reconnecting…";
+  else if (down) b.textContent = "Can't reach the hub: " + S.err + ". Retrying every " + Math.round(Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** (S.fails - 1)) / 1000) + " s.";
+}
+function renderState() {
+  const st = S.st;
+  const hub = st.hub || {};
+  let host = location.host;
+  try { if (hub.url) host = new URL(hub.url).host; } catch (e) { /* odd url: keep the page's host */ }
+  $("hubname").textContent = host.split(".")[0];
+  $("hubname").title = host;
+  const ws = st.workers || [], act = st.active || [];
+  const online = ws.filter((w) => w.state === "online");
+  const building = act.filter((j) => j.state !== "queued").length;
+  const item = (label, value) => h("span", null, h("b", null, value), " " + label);
+  $("summary").replaceChildren(
+    item("Macs online", online.length + "/" + ws.length),
+    item("slots in use", ws.reduce((a, w) => a + num(w.used), 0) + "/" + ws.filter((w) => w.enabled).reduce((a, w) => a + num(w.slots), 0)),
+    item("building", building),
+    item("queued", act.length - building));
+  renderNavCounts(ws, building, act.length - building);
+  renderMacs(ws);
+  renderActive(act);
+  renderJoin(hub);
+  renderUpdates(st);
+  renderOverview();
+  if (detail && detail.kind === "mac") renderMac(detail);
+  if (detail && detail.kind === "job" && detail.job) renderJobMeta(detail);
+}
+function renderNavCounts(ws, building, queued) {
+  const n = (count, label, dot) => count ? h("span", null, dot ? h("span", { class: "dot " + dot }) : null, count, h("span", { class: "sr" }, " " + label)) : null;
+  NAV_COUNT.get("builds").replaceChildren(...[n(building, "building", "run"), n(queued, "queued", "idle")].filter(Boolean));
+  NAV_COUNT.get("macs").replaceChildren(...[n(ws.filter((w) => w.state === "stale").length, "lost", "bad"),
+    n(ws.filter((w) => w.state === "drained").length, "out of the pool", "out")].filter(Boolean));
+  const rel = S.st.release || {};
+  NAV_COUNT.get("updates").replaceChildren(...[
+    rel.available ? h("span", null, h("span", { class: "dot out" }), h("span", { class: "sr" }, "hub update available")) : null,
+    n(ws.filter((w) => !w.agent_current).length, "agents outdated", "out")].filter(Boolean));
+}
+
+// --- Macs -----------------------------------------------------------------------------------------
+
+function meter(label, used, total, text) {
+  const fill = h("span", { class: used >= total && total > 0 ? "full" : null });
+  fill.style.width = (total > 0 ? Math.min(100, Math.max(0, used / total * 100)) : 0) + "%";
+  return h("div", { class: "meter-row" }, h("span", { class: "muted" }, label), h("div", { class: "meter" }, fill), h("span", null, text));
+}
+function infoLines(i) {
+  i = i && typeof i === "object" ? i : {};
+  const join = (...xs) => xs.filter((x) => x != null && x !== "").map(show).join(" · ");
+  const lines = [
+    i.chip || i.model ? (i.chip && i.model ? show(i.chip) + " (" + show(i.model) + ")" : show(i.chip || i.model)) : "",
+    i.macos ? "macOS " + show(i.macos) : "",
+    join(i.dns, i.tailnet_ip),
+    i.lan_ip ? "LAN " + show(i.lan_if || "?") + " " + show(i.lan_ip) : "",
+    join(i.host ? "host " + show(i.host) : "", i.tailnet ? "tailnet " + show(i.tailnet) : ""),
+  ].filter(Boolean);
+  return lines.length ? h("div", { class: "info" }, lines.map((l) => h("div", null, l))) : null;
+}
+function macCard(w) {
+  const ram = num(w.ram_gb), free = num(w.free_gb);
+  return h("a", { class: "card", href: macHref(w.label) },
+    h("div", { class: "card-head" }, h("strong", { class: "mono" }, show(w.label)), badge(w.state)),
+    meter("Slots", num(w.used), num(w.slots), num(w.used) + "/" + num(w.slots)),
+    meter("RAM", ram - free, ram, Math.round(free) + " GB free of " + ram),
+    kv([["Xcode", w.xcode], ["Agent", agentText(w)], ["User", w.user], ["Heartbeat", agoEl(w.seen)]]),
+    infoLines(w.info));
+}
+function agentText(w) { return show(w.version) + (w.agent_current ? "" : " (outdated)"); }
+function renderMacs(ws) {
+  $("maclist").replaceChildren(...(ws.length ? ws.map(macCard) : [h("div", { class: "empty" }, "No Macs are enabled or sending heartbeats.")]));
+}
+
+// --- running and queue ----------------------------------------------------------------------------
+
+function runningTable(act) {
+  return table(
+    [["Job"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["State"], ["Time", "num"]],
+    act.filter((j) => j.state !== "queued").map((j) => clickRow(jobHref(j.id), [
+      h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
+      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", null, badge(j.state)),
+      h("td", { class: "num" }, since(j.started || j.created))])),
+    "Nothing is building.");
+}
+function renderActive(act) {
+  const queued = act.filter((j) => j.state === "queued");
+  $("running").replaceChildren(runningTable(act));
+  $("queue").replaceChildren(table(
+    [["#", "num"], ["Job"], ["Project"], ["Plat."], ["Client"], ["Waiting", "num"], [""]],
+    queued.map((j) => clickRow(jobHref(j.id), [
+      h("td", { class: "num" }, show(j.position)), h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))),
+      h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)),
+      h("td", { class: "num" }, since(j.created)), h("td", null, j.src ? "" : badge("nosrc"))])),
+    "The queue is empty."));
+}
+
+// --- overview -------------------------------------------------------------------------------------
+
+function renderOverview() {
+  if (!S.st) return;
+  const ws = S.st.workers || [], act = S.st.active || [];
+  $("ov-fleet").replaceChildren(table(
+    [["Mac"], ["State"], ["Slots", "num"], ["RAM free", "num"], ["Heartbeat"]],
+    ws.map((w) => clickRow(macHref(w.label), [
+      h("td", null, macLink(w.label)), h("td", null, badge(w.state)), h("td", { class: "num" }, num(w.used) + "/" + num(w.slots)),
+      h("td", { class: "num" }, Math.round(num(w.free_gb)) + " GB"), h("td", null, agoEl(w.seen))])),
+    "No Macs are enabled or sending heartbeats."));
+  $("ov-running").replaceChildren(runningTable(act));
+  const queued = act.filter((j) => j.state === "queued").length;
+  $("ov-queued").hidden = !queued;
+  $("ov-queued").firstChild.textContent = queued + " queued";
+  const failed = ((S.hist && S.hist.jobs) || []).filter((j) => j.state === "failed" && num(j.finished) >= now() - 86400).slice(0, 5);
+  $("ov-failures").replaceChildren(table(
+    [["Finished"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["rc", "num"]],
+    failed.map((j) => clickRow(jobHref(j.id), [
+      h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
+      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", { class: "num" }, show(j.rc))])),
+    S.hist ? "No failures in the last 24 h." : "Loading…"));
+}
+$("ov-all-failures").addEventListener("click", () => { $("f-state").value = "failed"; renderHistory(); });
+
+// --- history --------------------------------------------------------------------------------------
+
+const FILTERS = [["f-plat", "plat", "all platforms"], ["f-mac", "worker", "all Macs"], ["f-client", "client", "all clients"]];
+for (const id of ["f-q", "f-state", ...FILTERS.map((f) => f[0])]) $(id).addEventListener("input", renderHistory);
+
+function syncOptions(sel, values, all) {
+  const cur = sel.value;
+  const want = [...new Set(values.filter((v) => v != null).map(String))].sort();
+  if (cur && !want.includes(cur)) want.push(cur);
+  const key = JSON.stringify(want);
+  if (sel.dataset.key === key) return;
+  sel.dataset.key = key;
+  sel.replaceChildren(h("option", { value: "" }, all), ...want.map((v) => h("option", { value: v }, v)));
+  sel.value = cur;
+}
+function renderHistory() {
+  const jobs = (S.hist && S.hist.jobs) || [];
+  for (const [id, field, all] of FILTERS) syncOptions($(id), jobs.map((j) => j[field]), all);
+  const q = $("f-q").value.trim().toLowerCase(), st = $("f-state").value;
+  const pick = FILTERS.map(([id, field]) => [field, $(id).value]).filter(([, v]) => v);
+  const shown = jobs.filter((j) => (!st || j.state === st)
+    && pick.every(([f, v]) => String(j[f]) === v)
+    && (!q || ["id", "proj", "key", "client", "worker"].some((f) => j[f] != null && String(j[f]).toLowerCase().includes(q))));
+  $("f-count").textContent = shown.length + " of " + jobs.length + (shown.length > HISTORY_ROWS ? " (showing " + HISTORY_ROWS + ")" : "");
+  $("histlist").replaceChildren(table(
+    [["Finished"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["Duration", "num"], ["rc", "num"], ["State"]],
+    shown.slice(0, HISTORY_ROWS).map((j) => clickRow(jobHref(j.id), [
+      h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
+      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", { class: "num" }, took(j)),
+      h("td", { class: "num" }, show(j.rc)), h("td", null, badge(j.state))])),
+    S.hist ? "No finished job matches." : "Loading…"));
+}
+
+// --- cache, affinity and joining a Mac ------------------------------------------------------------
+
+function cacheHref(proj, name) { return "/cache/" + enc(String(proj)) + "/" + enc(String(name)); }
+function renderCache() {
+  const c = S.cache || {}, projects = c.projects || [], aff = c.affinity || [];
+  $("cachelist").replaceChildren(...(projects.length ? projects.map((p) => h("div", { class: "tablewrap proj" },
+    h("div", { class: "proj-head" }, h("span", { class: "mono" }, show(p.proj)), h("span", { class: "muted" }, bytes(p.size))),
+    h("table", null, h("tbody", null, (p.files || []).map((f) => h("tr", null,
+      h("td", { class: "mono" }, show(f.name)), h("td", { class: "num" }, bytes(f.size)), h("td", null, when(f.mtime)),
+      h("td", null, h("a", { href: cacheHref(p.proj, f.name), download: String(f.name) }, "Download")))))))) :
+    [h("div", { class: "empty" }, "The cache is empty.")]));
+  $("afflist").replaceChildren(table([["Project"], ["Plat."], ["Mac"]],
+    aff.map((a) => h("tr", null, h("td", { class: "mono" }, show(a.proj)), h("td", null, show(a.plat)), h("td", null, macLink(a.worker)))),
+    "No affinity yet: it is recorded with each successful build."));
+}
+async function copy(code) {
+  const text = code.textContent;
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); toast("Copied."); return; }
+  } catch (e) { /* no permission: fall back to the selection method */ }
+  const r = document.createRange();
+  r.selectNodeContents(code);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(r);
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+  toast(ok ? "Copied." : "Selected: copy it with Ctrl+C (⌘C on a Mac).");
+}
+function cmd(text) {
+  const code = h("code", null, text);
+  return h("div", { class: "cmd" }, code, h("button", { type: "button", on: { click: () => copy(code) } }, "Copy"));
+}
+function renderJoin(hub) {
+  const key = JSON.stringify(hub);
+  if (key === S.joinKey) return;
+  S.joinKey = key;
+  let short = "";
+  try { short = hub.url ? new URL(hub.url).hostname.split(".")[0] : ""; } catch (e) { short = ""; }
+  const port = show(hub.tailnet_port);
+  const excluded = Array.isArray(hub.exclude) ? hub.exclude.map(show) : [];
+  const refused = (hub.label ? "The hub itself (" + show(hub.label) + ")" : "The hub itself") +
+    (excluded.length ? " and " + excluded.join(", ") + ", in the hub's exclude setting, refuse" : " refuses") + " to join.";
+  $("join").replaceChildren(...[
+    h("p", { class: "note" }, "On the new Mac, as the user that will build, paste one of these into Terminal:"),
+    hub.ip ? cmd("curl -fsSL http://" + show(hub.ip) + ":" + port + "/join | bash") : h("p", { class: "hint" }, "The hub doesn't know its tailnet IP yet."),
+    short ? cmd("curl -fsSL http://" + short + ":" + port + "/join | bash -s -- --slots 2") : null,
+    h("p", { class: "note" }, "From a client, over Tailscale SSH as root (slots are optional; the default is 1 per 24 GB of RAM):"),
+    cmd("cider-build add <mac> [slots]"),
+    cmd("cider-build remove <mac>"),
+    h("p", { class: "note" }, "Xcode must already be installed on the Mac, because it asks for an Apple ID. " + refused)].filter(Boolean));
+}
+
+// --- updates: the hub from its git repository (if it has one), the agents from the hub -----------
+
+const PHASE_TEXT = { checking: "checking for updates…", updating: "validating and test-starting the new version…",
+  restarting: "restarting on the new version: the panel reconnects by itself" };
+const AUTH_ERROR = /permission denied|publickey|could not read from remote|host key|authenticat/i;
+function short(sha) { return sha ? String(sha).slice(0, 12) : null; }
+function canUpdateAgent(w) { return !w.agent_current && w.self_update && !w.update; }
+function renderUpdates(st) {
+  const rel = st.release || {}, ws = st.workers || [];
+  const key = JSON.stringify([rel, st.agent, ws.map((w) => [w.label, w.version, w.state, w.agent_current, w.self_update, w.update, w.update_error, w.used])]);
+  if (key === S.updatesKey) return;
+  S.updatesKey = key;
+  $("up-hub").replaceChildren(rel.source === null ? hubUpdatesOff() : hubUpdates(rel));
+
+  const outdated = ws.filter(canUpdateAgent);
+  $("up-agents").replaceChildren(
+    h("p", { class: "note" }, "The hub hands out agent ", h("span", { class: "mono" }, show(st.agent)),
+      ". A Mac asked to update takes no new builds, finishes the ones it has, then downloads it and restarts."),
+    h("div", { class: "toolbar" }, h("button", { type: "button", disabled: !outdated.length, on: { click: () => updateAgents(outdated, st.agent) } },
+      "Update all outdated (" + outdated.length + ")")),
+    table([["Mac"], ["Agent"], ["State"], [""]], ws.map((w) => h("tr", null,
+      h("td", null, macLink(w.label)), h("td", { class: "mono" }, agentText(w)), h("td", null, badge(w.state)),
+      h("td", null, agentAction(w, st.agent)))), "No Macs are enabled or sending heartbeats."));
+}
+function hubUpdatesOff() {
+  return h("div", null,
+    h("p", { class: "note" }, "Hub updates are off: this hub has no update source. To update it from a git repository (this project's, or your fork), run this on the hub as the user that runs it:"),
+    cmd("bash ~/cider-build/bin/install.sh hub --set update_url=<git URL>"),
+    h("p", { class: "hint" }, "Agents still update from the hub, below."));
+}
+function hubUpdates(rel) {
+  const src = rel.source || {}, branch = src.branch ? show(src.branch) : "the branch"; // a hub older than hub.json sends no source
+  const remote = rel.remote || {}, commits = Array.isArray(rel.commits) ? rel.commits : [];
+  const idle = rel.phase === "idle";
+  const status = PHASE_TEXT[rel.phase] || (!rel.checked ? "not checked yet" : rel.available ? "update available" : "up to date");
+  return h("div", null,
+    kv([src.url ? ["Source", h("span", null, h("span", { class: "mono" }, show(src.url)), " · " + branch)] : null,
+        ["Installed", rel.installed ? h("span", { class: "mono" }, short(rel.installed)) : "unknown (installed from a copy without git)"],
+        ["Latest on " + branch, rel.remote ? h("span", null, h("span", { class: "mono" }, short(remote.commit)), " " + show(remote.subject) + " · " + when(remote.time)) : "-"],
+        ["Last checked", rel.checked ? agoEl(rel.checked) : "never"],
+        ["State", status],
+        rel.error ? ["Error", h("span", { class: "err" }, show(rel.error))] : null]),
+    rel.error && AUTH_ERROR.test(rel.error) ? (rel.deploy_key ? [
+      h("p", { class: "note" }, "The hub can't read " + (src.url ? show(src.url) : "its repository") + ". Give this public key read-only access to that repository on its git host (usually called a deploy key):"),
+      cmd(rel.deploy_key)] :
+      h("p", { class: "note" }, "The hub has no SSH key for its update source. On the hub, run bash ~/cider-build/bin/install.sh hub again: for an ssh update_url it creates one and prints it. Or set update_ssh_key in the hub's hub.json.")) : null,
+    h("div", { class: "toolbar" },
+      h("button", { type: "button", disabled: !idle, on: { click: () => act("Check for updates", "POST", "/hub/check") } }, "Check for updates"),
+      h("button", { type: "button", disabled: !(idle && rel.available), on: { click: () => updateHub(rel) } }, "Update hub")),
+    commits.length ? [h("h3", null, show(rel.behind) + " commit" + (num(rel.behind) === 1 ? "" : "s") + " behind" + (num(rel.behind) > commits.length ? " (latest " + commits.length + ")" : "")),
+      table([["Commit"], ["Subject"]], commits.map((c) => h("tr", null, h("td", { class: "mono" }, show(c.sha)), h("td", null, show(c.subject)))), "")] :
+      rel.available && rel.behind == null ? h("p", { class: "note" }, "The installed commit is not in the history of " + branch + ", so the commits in between can't be listed.") : null);
+}
+function agentAction(w, agent) {
+  if (w.update) return w.update_error ? h("span", { class: "err" }, "updating: " + show(w.update_error)) : h("span", { class: "hint" }, "updating");
+  if (w.agent_current) return h("span", { class: "hint" }, "current");
+  if (!w.self_update) return h("span", { class: "hint" }, "run cider-build add " + show(w.label) + " once");
+  return h("button", { type: "button", on: { click: () => updateAgent(w, agent) } }, "Update agent");
+}
+
+// --- actions: always confirmed --------------------------------------------------------------------
+
+function toast(msg, bad) {
+  const t = h("div", { class: "toast" + (bad ? " bad" : "") }, msg);
+  $("toasts").append(t);
+  setTimeout(() => t.remove(), bad ? 9000 : 5000);
+}
+function confirmAction(title, body, yes) {
+  const d = $("confirm");
+  if (d.open) return Promise.resolve(false);
+  $("confirm-title").textContent = title;
+  $("confirm-body").replaceChildren(...body.map((p) => h("p", null, p)));
+  $("confirm-yes").textContent = yes;
+  d.returnValue = "";
+  d.showModal();
+  $("confirm-no").focus();
+  return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue === "yes"), { once: true }));
+}
+$("confirm-yes").addEventListener("click", () => $("confirm").close("yes"));
+$("confirm-no").addEventListener("click", () => $("confirm").close(""));
+
+async function act(what, method, url) {
+  try {
+    const r = await fetch(url, { method, cache: "no-store" });
+    const t = (await r.text()).trim();
+    toast(what + ": " + (t || "HTTP " + r.status), !r.ok);
+  } catch (e) {
+    toast(what + ": can't reach the hub (" + e.message + ")", true);
+  }
+  pollSoon(0);
+  if (detail && detail.kind === "job") refreshJob(detail);
+}
+async function cancelJob(j, waiting) {
+  const ok = await confirmAction("Cancel job " + show(j.id),
+    [show(j.proj) + " · " + show(j.plat) + " · client " + show(j.client) + (j.worker ? " · on " + show(j.worker) : ""),
+     "It is cancelled for every client waiting on it (" + waiting + "). Their cider-build exits with \"The build was cancelled on the hub.\"",
+     j.state === "queued" ? "It leaves the queue and never reaches a Mac." : "The agent on " + show(j.worker) + " stops the build and frees the slot."],
+    "Cancel job");
+  if (ok) act("Cancel " + j.id, "POST", "/detach?job=" + enc(j.id) + "&all=1");
+}
+async function updateHub(rel) {
+  const ok = await confirmAction("Update the hub to " + short((rel.remote || {}).commit),
+    [show((rel.remote || {}).subject),
+     "The hub downloads it, checks that it compiles and test-starts it on the side. If anything fails it stays as it is and shows the error.",
+     "Then it restarts on the new files once the downloads and uploads in flight finish. Builds on the Macs keep running and waiting clients keep polling; the panel reconnects by itself.",
+     "The previous files stay in ~/cider-build/bin/.previous on the hub."],
+    "Update hub");
+  if (ok) act("Update hub", "POST", "/hub/update");
+}
+function agentBody(ws, agent) {
+  return [(ws.length === 1 ? "It takes" : "Each Mac takes") + " no new builds, finishes the ones it is running (" + ws.reduce((a, w) => a + num(w.used), 0) + " now), then downloads agent " + show(agent) + " from the hub, checks it and restarts.",
+    "Queued builds go to other Macs meanwhile. If a download fails, the Mac keeps its agent, shows the error here and retries every minute."];
+}
+async function updateAgent(w, agent) {
+  if (await confirmAction("Update the agent on " + show(w.label), agentBody([w], agent), "Update agent")) {
+    act("Update " + w.label, "POST", "/workers/" + enc(w.label) + "/update");
+  }
+}
+async function updateAgents(ws, agent) {
+  if (!(await confirmAction("Update " + ws.length + " agent" + (ws.length === 1 ? "" : "s"), [ws.map((w) => w.label).join(", "), ...agentBody(ws, agent)], "Update all"))) return;
+  const bad = [];
+  for (const w of ws) {
+    try {
+      const r = await fetch("/workers/" + enc(w.label) + "/update", { method: "POST", cache: "no-store" });
+      if (!r.ok) bad.push(w.label + ": " + ((await r.text()).trim() || "HTTP " + r.status));
+    } catch (e) {
+      bad.push(w.label + ": can't reach the hub (" + e.message + ")");
+    }
+  }
+  toast("Update all: " + (ws.length - bad.length) + " updating" + (bad.length ? "; " + bad.join("; ") : ""), bad.length > 0);
+  pollSoon(0);
+}
+function defaultSlots(w) { return Math.max(1, Math.floor(num(w.ram_gb) / 24)); }
+async function setSlots(w, n) {
+  const ok = await confirmAction("Change slots on " + show(w.label),
+    ["From " + num(w.slots) + " to " + n + " slots: it takes up to " + n + " builds at once.",
+     num(w.used) > n ? "It has " + num(w.used) + " running: they finish, but it takes no more until it drops below " + n + "." : "Running builds are not affected."],
+    "Change to " + n);
+  if (ok) act("Slots on " + w.label, "PUT", "/workers/" + enc(w.label) + "?slots=" + n);
+}
+async function dropMac(w) {
+  const ok = await confirmAction("Disable " + show(w.label),
+    ["It stops taking new builds. The " + num(w.used) + " it has running will finish.",
+     "The agent stays installed: to remove it from the Mac, run cider-build remove " + show(w.label) + " from a client."],
+    "Disable");
+  if (ok) act("Disable " + w.label, "DELETE", "/workers/" + enc(w.label));
+}
+async function enableMac(w) {
+  const n = num(w.slots);
+  const ok = await confirmAction("Enable " + show(w.label),
+    [n ? "With its previous " + n + " slots." : "With the default slots: 1 per 24 GB of RAM (" + defaultSlots(w) + ").",
+     "It takes builds again as soon as it is online."],
+    "Enable");
+  if (ok) act("Enable " + w.label, "PUT", "/workers/" + enc(w.label) + "?slots=" + n);
+}
+
+// --- views and routes: #/<view> and #/<view>/(job|mac)/<id> ---------------------------------------
+
+const VIEWS = [
+  { id: "overview", group: null,     label: "Overview",         legacy: [] },
+  { id: "macs",     group: "Fleet",  label: "Macs",             legacy: ["macs"] },
+  { id: "add",      group: "Fleet",  label: "Add a Mac",        legacy: ["unir"] },
+  { id: "updates",  group: "Fleet",  label: "Updates",          legacy: [] },
+  { id: "builds",   group: "Builds", label: "Running & queue",  legacy: ["trabajos"] },
+  { id: "history",  group: "Builds", label: "History",          legacy: ["historial"] },
+  { id: "cache",    group: "Builds", label: "Cache & affinity", legacy: ["cache"] },
+];
+const VIEW_BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
+const VIEW_BY_LEGACY = new Map(VIEWS.flatMap((v) => v.legacy.map((a) => [a, v.id])));
+const NAV = new Map(), NAV_COUNT = new Map();
+
+// #job/<id> and #mac/<label> don't name a view: links emit them, so the detail opens over the view already shown.
+function parseHash(hash, current) {
+  const at = (view, kind, raw) => {
+    if (!kind) return { view, detail: null };
+    try { return { view, detail: { kind, id: decodeURIComponent(raw) } }; } catch (e) { return { view, detail: null }; }
+  };
+  let m = /^#\/([^/]+)(?:\/(job|mac)\/(.+))?$/.exec(hash);
+  if (m && VIEW_BY_ID.has(m[1])) return at(m[1], m[2], m[3]);
+  m = /^#(job|mac)\/(.+)$/.exec(hash);
+  if (m) return at(current, m[1], m[2]);
+  return { view: VIEW_BY_LEGACY.get(hash.slice(1)) || "overview", detail: null };
+}
+function routeHash(r) { return "#/" + r.view + (r.detail ? "/" + r.detail.kind + "/" + enc(r.detail.id) : ""); }
+
+function buildNav() {
+  const groups = [];
+  for (const v of VIEWS) {
+    if (!groups.length || groups[groups.length - 1].name !== v.group) groups.push({ name: v.group, views: [] });
+    groups[groups.length - 1].views.push(v);
+    $("view-" + v.id).prepend(h("h2", { tabindex: -1 }, v.label));
+  }
+  $("nav").replaceChildren(...groups.flatMap((g, i) => [
+    g.name ? h("h2", { class: "nav-group", id: "nav-group-" + i }, g.name) : null,
+    h("ul", { "aria-labelledby": g.name ? "nav-group-" + i : null }, g.views.map((v) => {
+      const count = h("span", { class: "nav-count" });
+      const a = h("a", { href: "#/" + v.id }, h("span", null, v.label), count);
+      NAV.set(v.id, a);
+      NAV_COUNT.set(v.id, count);
+      return h("li", null, a);
+    }))]).filter(Boolean));
+}
+
+let current = null, detail = null;
+function showView(id, focus) {
+  if (id === current) return;
+  current = id;
+  for (const v of VIEWS) {
+    $("view-" + v.id).hidden = v.id !== id;
+    if (v.id === id) NAV.get(v.id).setAttribute("aria-current", "page"); else NAV.get(v.id).removeAttribute("aria-current");
+  }
+  document.title = VIEW_BY_ID.get(id).label + " · Cider Builder";
+  window.scrollTo(0, 0);
+  if (focus) $("view-" + id).querySelector("h2").focus();
+}
+function setMenu(open) {
+  $("side").classList.toggle("open", open);
+  $("menu-btn").setAttribute("aria-expanded", String(open));
+}
+function route(e) {
+  setMenu(false);
+  const r = parseHash(location.hash, current || "overview");
+  const canon = routeHash(r);
+  const d = r.detail;
+  // Close may go Back only if the entry before this one is the same view with no drawer. The entry
+  // records that in history.state: a new entry (state null) learns it from e.oldURL, Back and Forward
+  // bring it back, and a cold load or a reload records false.
+  let state = history.state;
+  if (d && (!e || state === null)) {
+    const old = e ? parseHash(new URL(e.oldURL).hash, current || "overview") : null;
+    state = { back: !!old && old.view === r.view && !old.detail };
+  }
+  if ((location.hash && location.hash !== canon) || state !== history.state) history.replaceState(state, "", canon);
+  showView(r.view, !!e && !detail);
+  if (!d) { hideDrawer(); return; }
+  const back = !!e && state.back;
+  if (detail && detail.kind === d.kind && detail.id === d.id) { detail.back = back; return; }
+  detail = { kind: d.kind, id: d.id, back };
+  $("drawer").hidden = $("scrim").hidden = false;
+  $("drawer-title").textContent = (detail.kind === "job" ? "Job " : "Mac ") + d.id;
+  $("drawer-body").replaceChildren();
+  $("drawer-body").scrollTop = 0;
+  if (detail.kind === "job") openJob(detail); else renderMac(detail);
+}
+function hideDrawer() {
+  detail = null;
+  $("drawer").hidden = $("scrim").hidden = true;
+}
+function closeDrawer() {
+  if (detail && detail.back) { history.back(); return; }
+  history.replaceState(null, "", location.pathname + location.search + "#/" + current);
+  hideDrawer();
+}
+buildNav();
+window.addEventListener("hashchange", route);
+$("drawer-close").addEventListener("click", closeDrawer);
+$("scrim").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detail && !$("confirm").open) closeDrawer(); });
+$("menu-btn").addEventListener("click", () => setMenu(!$("side").classList.contains("open")));
+$("nav").addEventListener("click", (e) => { if (e.target.closest("a")) setMenu(false); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("side").classList.contains("open")) { setMenu(false); $("menu-btn").focus(); }
+});
+
+function renderMac(v) {
+  if (v !== detail) return;
+  const ws = (S.st && S.st.workers) || [];
+  const w = ws.find((x) => x.label === v.id);
+  if (!v.top) {
+    v.top = h("div");
+    v.actions = h("div");
+    v.rest = h("div");
+    $("drawer-body").replaceChildren(v.top, v.actions, v.rest);
+  }
+  if (!w) {
+    v.actionsKey = "";
+    v.actions.replaceChildren();
+    v.rest.replaceChildren();
+    v.top.replaceChildren(h("p", { class: "hint" }, S.st ? "The hub doesn't list this Mac: it is disabled with no heartbeat, or it doesn't exist." : "Loading…"));
+    return;
+  }
+  const ram = num(w.ram_gb), free = num(w.free_gb), info = w.info && typeof w.info === "object" ? w.info : {};
+  const act = ((S.st && S.st.active) || []).filter((j) => j.worker === v.id && j.state !== "queued");
+  const hist = ((S.hist && S.hist.jobs) || []).filter((j) => j.worker === v.id).slice(0, 20);
+  const aff = ((S.cache && S.cache.affinity) || []).filter((a) => a.worker === v.id);
+  const key = [w.enabled, w.slots, w.used, w.agent_current, w.self_update, w.update].join("|");
+  if (v.actionsKey !== key) { v.actionsKey = key; v.actions.replaceChildren(macActions(w)); }
+  v.top.replaceChildren(kv([["State", badge(w.state)], ["Enabled", w.enabled ? "yes" : "no"],
+        ["Slots", num(w.used) + " in use of " + num(w.slots)], ["RAM", Math.round(free) + " GB free of " + ram + " GB"],
+        ["Xcode", w.xcode], ["Agent", agentText(w)], w.update_error ? ["Agent update", h("span", { class: "err" }, show(w.update_error))] : null,
+        ["User", w.user], ["Last heartbeat", agoEl(w.seen)],
+        ["Agent boot", h("span", { class: "mono" }, show(w.boot))],
+        ["Jobs it reports", (w.running || []).length ? h("span", { class: "mono" }, (Array.isArray(w.running) ? w.running : [w.running]).map(show).join(" ")) : "none"],
+        ...Object.keys(info).sort().map((k) => [k, info[k]])]));
+  v.rest.replaceChildren(
+    h("h3", null, "Building here"),
+    table([["Job"], ["Project"], ["Plat."], ["Client"], ["State"], ["Time", "num"]],
+      act.map((j) => clickRow(jobHref(j.id), [h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))),
+        h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)), h("td", null, badge(j.state)),
+        h("td", { class: "num" }, since(j.started || j.created))])), "Nothing running."),
+    h("h3", null, "Last 20 jobs"),
+    table([["Finished"], ["Project"], ["Plat."], ["Client"], ["Duration", "num"], ["rc", "num"], ["State"]],
+      hist.map((j) => clickRow(jobHref(j.id), [h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))),
+        h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)), h("td", { class: "num" }, took(j)),
+        h("td", { class: "num" }, show(j.rc)), h("td", null, badge(j.state))])), "No finished jobs on this Mac."),
+    h("h3", null, "Affinity"),
+    table([["Project"], ["Plat."]], aff.map((a) => h("tr", null, h("td", { class: "mono" }, show(a.proj)), h("td", null, show(a.plat)))),
+      "No project prefers this Mac."));
+}
+function macActions(w) {
+  const input = h("input", { type: "number", min: 1, max: 99, step: 1, value: num(w.slots) || defaultSlots(w), "aria-label": "Slots", disabled: !w.enabled });
+  const save = h("button", { type: "button", disabled: !w.enabled, on: { click: () => {
+    const n = Number(input.value);
+    if (!Number.isInteger(n) || n < 1 || n > 99) { toast("Slots must be a number from 1 to 99.", true); return; }
+    if (n === num(w.slots)) { toast("It already has " + n + " slots."); return; }
+    setSlots(w, n);
+  } } }, "Change slots");
+  return h("div", { class: "toolbar" }, h("label", { class: "hint" }, "Slots"), input, save,
+    w.enabled ? null : h("span", { class: "hint" }, "enable it first"),
+    w.enabled ? h("button", { type: "button", class: "danger", on: { click: () => dropMac(w) } }, "Disable")
+              : h("button", { type: "button", on: { click: () => enableMac(w) } }, "Enable"),
+    canUpdateAgent(w) ? h("button", { type: "button", on: { click: () => updateAgent(w, S.st && S.st.agent) } }, "Update agent")
+      : w.update ? h("span", { class: "hint" }, "updating the agent")
+      : !w.agent_current && !w.self_update ? h("span", { class: "hint" }, "agent too old to update from here: run cider-build add " + show(w.label) + " once") : null);
+}
+
+// --- job detail and its log -----------------------------------------------------------------------
+
+async function openJob(v) {
+  v.meta = h("div", null, h("p", { class: "hint" }, "Loading…"));
+  v.logInfo = h("div", { class: "log-status" });
+  v.pre = h("pre", { class: "log", tabindex: 0 });
+  v.pre.addEventListener("scroll", () => { v.follow = v.pre.scrollTop + v.pre.clientHeight >= v.pre.scrollHeight - 8; });
+  $("drawer-body").replaceChildren(v.meta, h("h3", null, "Log"), v.logInfo, v.pre);
+  if (!(await refreshJob(v))) return;
+  startLog(v, Math.max(0, num(v.job.log_size) - LOG_TAIL));
+}
+async function refreshJob(v) {
+  try {
+    const d = await getJSON("/api/job?job=" + enc(v.id));
+    if (v !== detail) return false;
+    v.job = d.job;
+    renderJobMeta(v);
+    return true;
+  } catch (e) {
+    if (v === detail) v.meta.replaceChildren(h("p", { class: "err" }, "Couldn't read the job: " + e.message));
+    return false;
+  }
+}
+function renderJobMeta(v) {
+  const j = v.job, active = ACTIVE.includes(j.state);
+  const live = ((S.st && S.st.active) || []).find((a) => a.id === j.id);
+  const waiting = live ? num(live.waiters) : 0;
+  const registered = j.waiters && typeof j.waiters === "object" ? Object.keys(j.waiters).length : 0;
+  const cfg = j.cfg && typeof j.cfg === "object" ? j.cfg : {};
+  const known = new Set(["id", "proj", "key", "plat", "kind", "client", "state", "worker", "created", "started", "finished", "rc",
+    "retries", "attempt", "src", "position", "waiters", "cfg", "log_size", "ext", "seen", "delivered_boot", "log_offset"]);
+  const file = show(j.key) + "-" + show(j.plat) + "." + show(j.ext);
+  v.meta.replaceChildren(
+    kv([["State", badge(j.state)], ["Project", j.proj], ["Key", h("span", { class: "mono" }, show(j.key))],
+        ["Platform", j.plat], ["Kind", j.kind], ["Client", j.client], ["Mac", macLink(j.worker)],
+        j.state === "queued" ? ["Queue position", j.position] : null,
+        ["Source uploaded", j.src ? "yes" : "no"], ["Attempt", j.attempt], ["Retries", j.retries], ["rc", j.rc],
+        ["Created", when(j.created)], ["Started", when(j.started)], ["Finished", when(j.finished)],
+        ["Duration", active ? since(j.started || j.created) : took(j)],
+        ["Clients waiting", active ? waiting + " live (" + registered + " registered)" : registered + " registered"],
+        active && j.worker ? ["Last report from the Mac", agoEl(j.seen)] : null,
+        j.delivered_boot ? ["Agent boot", h("span", { class: "mono" }, show(j.delivered_boot))] : null,
+        ["Log", bytes(j.log_size)],
+        ...Object.keys(cfg).sort().map((k) => ["cfg." + k, cfg[k]]),
+        ...Object.keys(j).filter((k) => !known.has(k)).sort().map((k) => [k, j[k]])]),
+    h("div", { class: "toolbar" },
+      active ? h("button", { type: "button", class: "danger", on: { click: () => cancelJob(j, waiting) } }, "Cancel job") : null,
+      j.state === "done" ? h("a", { href: cacheHref(j.proj, file), download: file }, "Download " + file) : null));
+}
+
+const ANSI = /\x1b\[[0-?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b[ -\/]+[0-~]|\x1b[@-Z\\]/g;
+const ANSI_AT_START = new RegExp("^(?:" + ANSI.source + ")");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function startLog(v, offset) {
+  v.gen = (v.gen || 0) + 1;
+  Object.assign(v, { offset, decoder: new TextDecoder("utf-8"), pending: "", len: 0, trimmed: false, follow: true, from: offset });
+  v.pre.replaceChildren();
+  pumpLog(v, v.gen);
+}
+function logStatus(v, text) {
+  v.logInfo.replaceChildren(...[h("span", null, text),
+    v.from > 0 ? h("span", null, "Showing from byte " + v.from + ".") : null,
+    v.trimmed ? h("span", null, "The start was trimmed to stay under 4 MB.") : null,
+    v.from > 0 ? h("button", { type: "button", on: { click: () => startLog(v, 0) } }, "Load from the start") : null,
+    v.follow ? null : h("button", { type: "button", on: { click: () => { v.follow = true; v.pre.scrollTop = v.pre.scrollHeight; } } }, "Jump to the end")].filter(Boolean));
+}
+function cleanLog(v, s, final) {
+  s = v.pending + s;
+  v.pending = "";
+  const i = s.lastIndexOf("\x1b");
+  if (!final && i >= 0 && s.length - i < 64 && !ANSI_AT_START.test(s.slice(i))) { v.pending = s.slice(i); s = s.slice(0, i); }
+  return s.replace(ANSI, "").replace(/\r\n?/g, "\n").replace(/[\x00-\x08\x0b-\x1f\x7f]/g, "");
+}
+function appendLog(v, s) {
+  if (!s) return;
+  const pre = v.pre;
+  pre.append(document.createTextNode(s));
+  v.len += s.length;
+  while (v.len > LOG_CAP && pre.firstChild && pre.firstChild !== pre.lastChild) {
+    v.len -= pre.firstChild.length;
+    pre.firstChild.remove();
+    v.trimmed = true;
+  }
+  if (v.follow) pre.scrollTop = pre.scrollHeight;
+}
+async function pumpLog(v, gen) {
+  const alive = () => detail === v && v.gen === gen;
+  let last = "";
+  while (alive()) {
+    let buf;
+    try {
+      const r = await fetch("/poll?job=" + enc(v.id) + "&offset=" + v.offset, { cache: "no-store" });
+      if (!r.ok) throw new Error((await r.text()).trim() || "HTTP " + r.status);
+      buf = new Uint8Array(await r.arrayBuffer());
+    } catch (e) {
+      if (!alive()) return;
+      logStatus(v, "Couldn't read the log: " + e.message + ". Retrying in 2 s.");
+      await sleep(2000);
+      continue;
+    }
+    if (!alive()) return;
+    const nl = buf.indexOf(10);
+    const head = new TextDecoder().decode(buf.subarray(0, nl)).split(" ");
+    const chunk = buf.subarray(nl + 1);
+    appendLog(v, cleanLog(v, v.decoder.decode(chunk, { stream: true }), false));
+    v.offset = num(head[4]);
+    const state = head[0], active = ACTIVE.includes(state);
+    if (head.slice(0, 4).join(" ") !== last) {
+      last = head.slice(0, 4).join(" ");
+      if (!(await refreshJob(v)) || !alive()) return;
+    }
+    if (chunk.length) { logStatus(v, "Reading…"); continue; }
+    if (!active) {
+      appendLog(v, cleanLog(v, v.decoder.decode(), true));
+      logStatus(v, "Log complete (" + bytes(v.offset) + ").");
+      return;
+    }
+    logStatus(v, "Live: updates every second.");
+    await sleep(1000);
+  }
+}
+
+route();
+poll();
+</script>
+</body>
+</html>

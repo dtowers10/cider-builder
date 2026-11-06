@@ -1,0 +1,1692 @@
+#!/usr/bin/python3
+# cider-build-hub: build server for the fleet. Runs on the hub Mac as a LaunchDaemon (install.sh hub), listens on
+# 127.0.0.1:<port> and tailscale serve publishes it at https://<hub's tailnet name>:<port>.
+# It also listens on http://<tailnet IP>:<tailnet_port>, so a new Mac can join knowing only the hub's IP (/join).
+# It is the only writer of $CIDER_BUILD_HOME (~/cider-build): jobs, builder Macs, affinity, cache, and its own bin/ when
+# it updates itself from its git repository (POST /hub/update; launchd restarts it on the new files). Its settings
+# are in $CIDER_BUILD_HOME/hub.json: `cider-build-hub config` lists them.
+# Python 3.9, no dependencies.
+import base64
+import collections
+import contextlib
+import getpass
+import gzip
+import hashlib
+import json
+import math
+import os
+import re
+import secrets
+import shlex
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import threading
+import time
+import urllib.request
+import zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
+
+BASE = os.environ.get("CIDER_BUILD_HOME") or os.path.expanduser("~/cider-build")
+CONFIG_PATH = os.path.join(BASE, "hub.json")
+JOBS, WORKERS, CACHE, BIN, BASES = (os.path.join(BASE, d) for d in ("jobs", "workers", "cache", "bin", "bases"))
+AFFINITY = os.path.join(BASE, "affinity.json")
+SHIPPED = {"cider-build", "cider-build-worker", "build.sh", "install.sh"}
+# The names before the project became Cider Builder: an agent installed as mac-build-worker updates itself from
+# /bin/mac-build-worker, and any copy of the old client fetches /bin/mac-build.
+LEGACY_BIN = {"mac-build": "cider-build", "mac-build-worker": "cider-build-worker"}
+
+BEAT_TTL = 30      # s without a heartbeat before the Mac stops receiving jobs
+LOST_TTL = 60      # s without the Mac naming one of its jobs before the job goes back to the queue
+SOURCE_TTL = 120   # s without hearing anything of a job's source before cancelling it: see recover()
+WAITER_TTL = 120   # s without polls before the client no longer counts as alive; above the client's 107 s patience
+MAX_RETRIES = 2
+KEEP_S = 7 * 86400
+LOG_CHUNK = 256 * 1024
+
+MIRROR = os.path.join(BASE, "repo.git")
+# What a hub update installs: repo path -> path under BIN, mode. Its digest decides whether an update is available.
+RELEASE_FILES = (
+    ("install.sh", "install.sh", 0o755),
+    ("bin/cider-build", "cider-build", 0o755),
+    ("bin/cider-build-hub", "cider-build-hub", 0o755),
+    ("bin/cider-build-worker", "cider-build-worker", 0o755),
+    ("bin/build.sh", "build.sh", 0o755),
+    ("bin/cider-build-panel.html", "cider-build-panel.html", 0o644),
+    ("bin/fonts/Geist-Variable.woff2", "fonts/Geist-Variable.woff2", 0o644),
+    ("bin/fonts/GeistMono-Variable.woff2", "fonts/GeistMono-Variable.woff2", 0o644),
+    ("bin/fonts/OFL.txt", "fonts/OFL.txt", 0o644),
+)
+SMOKE_S = 15
+
+TRANSITIONS = {
+    "queued": {"assigned", "cancelled"},
+    "assigned": {"building", "queued", "done", "failed", "cancelled"},
+    "building": {"queued", "done", "failed", "cancelled"},
+    "done": set(), "failed": set(), "cancelled": set(),
+}
+ACTIVE = ("queued", "assigned", "building")
+ON_WORKER = ("assigned", "building")
+KINDS = {"expo", "react_native", "ios_native", "android_native"}
+EXT = {"ios": "app.tar.gz", "android": "apk"}
+NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+ARTIFACT = re.compile(r"^(.+)-(ios|android)\.(app\.tar\.gz|apk)$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
+BASE_TMP = re.compile(r"\.(tmp|old)-[0-9a-f]{8}$")  # a base tree being written or replaced
+INFO_KEYS = ("host", "dns", "tailnet_ip", "tailnet", "chip", "model", "macos", "lan_if", "lan_ip")
+INFO_MAX = 80
+PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cider-build-panel.html")
+FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+FONT_FILES = ("Geist-Variable.woff2", "GeistMono-Variable.woff2")
+JSON = ("application/json; charset=utf-8", {"Cache-Control": "no-store"})
+JOB_SUMMARY = ("id", "proj", "key", "plat", "kind", "client", "state", "worker", "created", "started", "finished",
+               "rc", "retries", "attempt", "src", "src_via", "src_bytes", "src_at")
+
+
+# --- settings: $CIDER_BUILD_HOME/hub.json -----------------------------------------------------------
+# SETTINGS is the only list of the hub's settings; the Config fields, the env overrides and `cider-build-hub config`
+# come from it. Per key: env > hub.json > default, and an empty value means the default. The hub reads the file
+# once, at start, and never writes it; `config set` (which install.sh hub --set calls) and humans do.
+
+class ConfigError(Exception):
+    """A setting the hub cannot use: '<hub.json | env NAME>: <key>: <reason>'."""
+
+
+def integer(minimum):
+    def parse(v):
+        if isinstance(v, bool) or not (isinstance(v, int) or isinstance(v, str) and re.fullmatch(r"\s*[0-9]+\s*", v)):
+            raise ValueError("not a whole number: %r" % (v,))
+        if int(v) < minimum:
+            raise ValueError("%d is below the minimum, %d" % (int(v), minimum))
+        return int(v)
+    return parse
+
+
+def port_number(v):
+    n = integer(1)(v)
+    if n > 65535:
+        raise ValueError("not a port: %r" % (v,))
+    return n
+
+
+def text(v):
+    if not isinstance(v, str) or not v.strip():
+        raise ValueError("not a non-empty string: %r" % (v,))
+    if any(ord(c) < 32 or ord(c) == 127 for c in v):
+        raise ValueError("has a control character or a line break: %r" % (v,))
+    return v.strip()
+
+
+def git_url(v):
+    url = text(v)
+    if url.startswith("-"):
+        raise ValueError("starts with '-', which git fetch would take for an option: %r" % (url,))
+    return url
+
+
+OFF = "off"
+
+
+def update_url(v):
+    url = text(v)
+    return OFF if url.lower() == OFF else git_url(url)
+
+
+def ref_name(v):
+    ref = text(v)
+    if (not re.fullmatch(r"[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*", ref) or ref.startswith(("-", ".")) or ".." in ref
+            or ref.endswith(".lock")):
+        raise ValueError("not a branch name: %r" % (ref,))
+    return ref
+
+
+def key_path(v):
+    path = os.path.expanduser(text(v))
+    if not os.path.isabs(path):
+        raise ValueError("not an absolute path: %r" % (path,))
+    return path
+
+
+def names(v):
+    items = v.replace(",", " ").split() if isinstance(v, str) else v
+    if not isinstance(items, list) or not all(isinstance(n, str) for n in items):
+        raise ValueError("not a list of Mac names: %r" % (v,))
+    for n in items:
+        if not NAME.match(n) or n.startswith("."):
+            raise ValueError("not a Mac name: %r" % (n,))
+    return frozenset(items)
+
+
+Setting = collections.namedtuple("Setting", "key env parse default doc")
+SETTINGS = (
+    Setting("port", "CIDER_BUILD_PORT", port_number, 4710,
+            "port on 127.0.0.1; tailscale serve publishes it as https://<hub>:<port>, the URL clients use"),
+    Setting("tailnet_port", "CIDER_BUILD_TAILNET_PORT", port_number, 4711,
+            "plain-HTTP port on the hub's tailnet IP, for curl http://<hub>:<port>/join on a new Mac"),
+    Setting("update_url", "CIDER_BUILD_REPO", update_url, None,
+            "git repository the hub updates itself from (ssh, https or a path), or off. Unset: off too, but install.sh "
+            "hub fills in the repository it runs from; off stays off"),
+    Setting("update_branch", "CIDER_BUILD_BRANCH", ref_name, "main", "branch of update_url"),
+    Setting("update_ssh_key", "CIDER_BUILD_UPDATE_SSH_KEY", key_path, None,
+            "private key for an ssh update_url; unset: ssh's defaults. install.sh hub creates one for ssh URLs"),
+    Setting("update_check_s", "CIDER_BUILD_UPDATE_CHECK_S", integer(0), 1800,
+            "seconds between automatic update checks; 0: only from the panel"),
+    Setting("exclude", "CIDER_BUILD_EXCLUDE", names, frozenset(),
+            "Macs that never build (comma-separated); the hub itself never builds, listed or not"),
+    Setting("drain_command", "CIDER_BUILD_DRAIN_COMMAND", text, None,
+            "shell command, run every 10 s, that prints the Macs to keep out of the pool, one per line"),
+    Setting("cache_keep", "CIDER_BUILD_CACHE_KEEP", integer(1), 5, "artifacts kept per project and platform in the cache"),
+    Setting("cache_prune_s", "CIDER_BUILD_CACHE_PRUNE_S", integer(5), 600, "seconds between cache prunes"),
+)
+BY_KEY = {s.key: s for s in SETTINGS}
+Config = collections.namedtuple("Config", [s.key for s in SETTINGS] + ["origin", "warnings"])
+
+
+def read_file(path):
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        raise ConfigError("hub.json: %s" % e)
+    if not isinstance(raw, dict):
+        raise ConfigError("hub.json: not a JSON object")
+    return raw
+
+
+def legacy_env(var):
+    """CIDER_BUILD_X was MAC_BUILD_X before the rename; the old name still works, and the new one wins."""
+    return "MAC_BUILD_" + var[len("CIDER_BUILD_"):]
+
+
+def load_config(raw, environ):
+    """The effective settings from hub.json's content and the environment. A file value is checked even when the
+    environment overrides it, so smoke() proves a new release can read the live file. Unknown keys are only
+    warnings: a hub rolled back to bin/.previous must start with a file a newer hub wrote."""
+    def parse(s, v, where):
+        try:
+            return s.parse(v)
+        except ValueError as e:
+            raise ConfigError("%s: %s: %s" % (where, s.key, e))
+
+    values, origin = {}, {}
+    for s in SETTINGS:
+        values[s.key], origin[s.key] = s.default, "default"
+        if raw.get(s.key) not in (None, ""):
+            values[s.key], origin[s.key] = parse(s, raw[s.key], "hub.json"), "hub.json"
+        env = next((e for e in (s.env, legacy_env(s.env)) if e in environ), None)
+        if env:
+            where = "env " + env
+            values[s.key], origin[s.key] = parse(s, environ[env], where) if environ[env] else s.default, where
+    warnings = tuple("hub.json: unknown setting %r (ignored)" % k for k in sorted(set(raw) - set(BY_KEY)))
+    return Config(origin=origin, warnings=warnings, **values)
+
+
+def load_config_or_exit(path, environ):
+    try:
+        return load_config(read_file(path), environ)
+    except ConfigError as e:
+        sys.stderr.write("cider-build-hub cannot start: %s\n" % e)
+        sys.exit(78)  # EX_CONFIG; launchd retries every 10 s, and `cider-build-hub config` says the same
+
+
+def shown(v):
+    return "" if v is None else ",".join(sorted(v)) if isinstance(v, frozenset) else str(v)
+
+
+def config_cli(path, environ, args):
+    """cider-build-hub config               every setting: value, where it comes from, meaning
+    cider-build-hub config get KEY       the value alone (lists comma-separated, unset empty)
+    cider-build-hub config set KEY=VALUE...  checks every value, then writes hub.json (VALUE empty: back to the default)"""
+    try:
+        raw = read_file(path)
+        if not args:
+            c = load_config(raw, environ)
+            print("%s%s" % (path, "" if os.path.exists(path) else " (absent: every setting is its default)"))
+            for s in SETTINGS:
+                print("  %-15s %-32s %-29s %s" % (s.key, redact(shown(getattr(c, s.key))) or "-", c.origin[s.key], s.doc))
+            print("\n".join(c.warnings) or "Changes take effect when the hub restarts.")
+            return 0
+        if args[0] == "get" and len(args) == 2 and args[1] in BY_KEY:
+            print(shown(getattr(load_config(raw, environ), args[1])))
+            return 0
+        if args[0] == "set" and len(args) > 1:
+            for a in args[1:]:
+                k, eq, v = a.partition("=")
+                if not eq or k not in BY_KEY:
+                    sys.stderr.write("%s; the settings are: %s\n" % ("unknown setting %r" % k if eq else "set needs KEY=VALUE: %r" % a,
+                                                                       ", ".join(BY_KEY)))
+                    return 2
+                if v:
+                    p = load_config({k: v}, {})
+                    raw[k] = sorted(getattr(p, k)) if isinstance(getattr(p, k), frozenset) else getattr(p, k)
+                else:
+                    raw.pop(k, None)
+            load_config(raw, {})
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".tmp"
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp)
+            with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as f:  # update_url may hold a token
+                json.dump(raw, f, indent=2, sort_keys=True)
+                f.write("\n")
+            os.replace(tmp, path)
+            print("saved in %s; it takes effect when the hub restarts" % path)
+            return 0
+    except (ConfigError, OSError) as e:
+        sys.stderr.write("%s\n" % e)
+        return 1
+    sys.stderr.write("usage:\n  %s\n" % config_cli.__doc__)
+    return 2
+
+
+def redact(s):
+    """s without the user and password of any scheme://user:password@ URL in it: update_url as the panel shows it,
+    and git's error text. scp-like user@host:path and plain paths carry no secret and stay."""
+    return re.sub(r"([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]*@", r"\1", s)
+
+
+if __name__ == "__main__" and sys.argv[1:2] == ["config"]:
+    sys.exit(config_cli(CONFIG_PATH, os.environ, sys.argv[2:]))
+CONFIG = load_config_or_exit(CONFIG_PATH, os.environ)
+
+lock = threading.Lock()
+base_locks = {}  # "<proj>-<plat>" -> Lock over bases/<proj>-<plat>; never taken while holding `lock`, nor the reverse
+jobs = {}
+workers = {}
+affinity = {}
+drained = set()  # what drain_command printed last time it succeeded
+drain_error = None
+serving = {}  # cache path -> downloads in progress; pruning never deletes these
+sourcing = {}  # job id -> [requests carrying its source now open, when the last one ended]; see Handler.carrying_source
+hub_url = {}  # "canonical": https://<tailnet name>:<port>, the URL everyone uses; "ip": tailnet IP; "label": tailnet HostName
+# phase: idle -> checking -> idle, or idle -> updating -> idle (refused) | restarting (the process exits)
+release = {"phase": "idle", "checked": None, "error": None, "installed": None, "remote": None, "available": False,
+           "behind": None, "commits": [], "deploy_key": None, "source": None}
+transfers = 0  # artifact downloads and source/result uploads in flight; an update restarts the hub only at 0
+
+
+class HttpError(Exception):
+    def __init__(self, code, msg):
+        super().__init__(msg)
+        self.code = code
+
+
+def name(v, what):
+    if not v or not NAME.match(v) or v.startswith("."):
+        raise HttpError(400, "invalid %s: %r" % (what, v))
+    return v
+
+
+def write_json(path, obj):
+    tmp = "%s.tmp.%d" % (path, threading.get_ident())
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=1, sort_keys=True)
+    os.replace(tmp, path)
+
+
+def jpath(jid, suffix):
+    return os.path.join(JOBS, jid + suffix)
+
+
+def note(j, msg):
+    with open(jpath(j["id"], ".log"), "ab") as f:
+        f.write(("cider-build: %s\n" % msg).encode())
+
+
+def log_size(jid):
+    try:
+        return os.path.getsize(jpath(jid, ".log"))
+    except OSError:
+        return 0
+
+
+def move(j, to, **fields):
+    if to not in TRANSITIONS[j["state"]]:
+        raise HttpError(409, "job %s is %s and cannot move to %s" % (j["id"], j["state"], to))
+    j["state"] = to
+    j.update(fields)
+    if to not in ACTIVE:
+        j["finished"] = time.time()
+        for s in (".src.tar.gz", ".manifest.json"):
+            try:
+                os.unlink(jpath(j["id"], s))
+            except OSError:
+                pass
+    write_json(jpath(j["id"], ".json"), j)
+
+
+def save_job(j):
+    write_json(jpath(j["id"], ".json"), j)
+
+
+def save_worker(w):
+    write_json(os.path.join(WORKERS, w["label"] + ".json"), w)
+
+
+def cache_file(j):
+    return os.path.join(CACHE, j["proj"], "%s-%s.%s" % (j["key"], j["plat"], j["ext"]))
+
+
+def touch(path):
+    """Recency of a cache artifact is its mtime: written, or last handed to a client."""
+    try:
+        os.utime(path)
+    except OSError:
+        pass
+
+
+def prune_cache():
+    """Per (project, platform), keeps the cache_keep most recently used artifacts and deletes the rest.
+    Never deletes one being downloaded or one an active job is about to deliver. Call with the lock held."""
+    busy = {(j["proj"], j["key"], j["plat"]) for j in jobs.values() if j["state"] in ACTIVE}
+    removed = []
+    for d in os.scandir(CACHE):
+        if d.name.startswith(".") or not d.is_dir():
+            continue
+        groups = {}
+        for f in os.scandir(d.path):
+            m = ARTIFACT.match(f.name)
+            if f.name.startswith(".") or not m or not f.is_file():
+                continue  # .tmp-* are writes in flight
+            groups.setdefault(m.group(2), []).append((f.stat().st_mtime, f.name, m.group(1)))
+        for plat, files in groups.items():
+            for _, fname, key in sorted(files, reverse=True)[CONFIG.cache_keep:]:
+                path = os.path.join(d.path, fname)
+                if serving.get(path) or (d.name, key, plat) in busy:
+                    continue
+                try:
+                    os.unlink(path)
+                    removed.append("%s/%s" % (d.name, fname))
+                except OSError:
+                    pass
+    if removed:
+        sys.stderr.write("%s cache: pruned %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), " ".join(removed)))
+    return removed
+
+
+def used(label):
+    # A cancelled job keeps its slot while the agent may still have its process alive: what it named
+    # in its last heartbeat and what that response handed it, which it has not been able to name yet.
+    w = workers.get(label) or {}
+    return len({j["id"] for j in jobs.values() if j["state"] in ON_WORKER and j["worker"] == label}
+               | set(w.get("running", [])))
+
+
+def worker_state(w, t):
+    if not w.get("enabled"):
+        return "disabled", "disabled"
+    if t - w.get("seen", 0) >= BEAT_TTL:
+        return "stale", "no heartbeat"
+    if w.get("update"):
+        return "updating", "updating the agent"
+    if w["label"] in drained:
+        return "drained", "out of the pool"
+    if not w.get("tools_ready"):
+        return "no_tools", "missing tools"
+    return "online", "online"
+
+
+def shown_workers(t):
+    return [w for w in sorted(workers.values(), key=lambda w: w["label"])
+            if w.get("enabled") or t - w.get("seen", 0) <= BEAT_TTL]
+
+
+def refusal(*names):
+    """Why a Mac known by any of these names must not build, or None. The only home of that rule: registering,
+    scheduling and GET /workers/<label>/admit (which install.sh asks before touching a Mac) all ask here."""
+    for n in names:
+        if n and n == hub_url.get("label"):
+            return "%s is the hub: the hub coordinates and does not build." % n
+        if n in CONFIG.exclude:
+            return "%s does not build: it is in the hub's exclude list (exclude in %s)." % (n, CONFIG_PATH)
+    return None
+
+
+def schedulable(w, t):
+    return (w.get("enabled") and w.get("tools_ready") and not refusal(w["label"])
+            and t - w.get("seen", 0) < BEAT_TTL and w["label"] not in drained and not w.get("update")
+            and used(w["label"]) < w.get("slots", 0))
+
+
+def lose(j, why):
+    if j["retries"] >= MAX_RETRIES:
+        note(j, "%s. Already retried %d times: marking it failed." % (why, j["retries"]))
+        move(j, "failed", rc=-1)
+    else:
+        note(j, "%s. Back to the queue (retry %d)." % (why, j["retries"] + 1))
+        move(j, "queued", worker=None, retries=j["retries"] + 1)
+
+
+def schedule():
+    t = time.time()
+    for j in sorted((j for j in jobs.values() if j["state"] == "queued" and j["src"]), key=lambda j: j["created"]):
+        cands = [w for w in workers.values() if schedulable(w, t)]
+        if not cands:
+            return
+        # A Mac that still has a Run for this id does not get the next attempt: the agent tells
+        # Runs apart only by id and would not start it, while the hub would consider it building.
+        cands = [w for w in cands if j["id"] not in w.get("running", [])]
+        if not cands:
+            continue
+        aff = affinity.get("%s-%s" % (j["proj"], j["plat"]))
+        pick = next((w for w in cands if w["label"] == aff), None) or max(cands, key=lambda w: w.get("free_gb", 0))
+        move(j, "assigned", worker=pick["label"], attempt=j["attempt"] + 1, seen=t,
+             log_offset=log_size(j["id"]), delivered_boot=None)
+
+
+def recover():
+    t = time.time()
+    for j in list(jobs.values()):
+        if j["state"] == "queued" and not j["src"]:
+            # SOURCE_TTL from the submit or from the end of the last request that carried its source, never
+            # while one is open (Handler.carrying_source): a slow upload is not cut off, a vanished client is.
+            n, ended = sourcing.get(j["id"], (0, 0))
+            if not n and t - max(j["created"], ended) > SOURCE_TTL:
+                note(j, "The hub heard nothing of the source for %d s: cancelling." % SOURCE_TTL)
+                move(j, "cancelled")
+        elif j["state"] in ON_WORKER and t - j["seen"] > LOST_TTL:
+            lose(j, "%s stopped reporting this job more than %d s ago" % (j["worker"], LOST_TTL))
+        elif j["state"] not in ACTIVE and t - j.get("finished", t) > KEEP_S:
+            for s in (".json", ".log", ".src.tar.gz", ".manifest.json"):
+                try:
+                    os.unlink(jpath(j["id"], s))
+                except OSError:
+                    pass
+            del jobs[j["id"]]
+            sourcing.pop(j["id"], None)
+
+
+def position(j):
+    if j["state"] != "queued":
+        return 0
+    return sum(1 for o in jobs.values() if o["state"] == "queued" and o["created"] <= j["created"])
+
+
+def live_waiters(j, t):
+    return [w for w, seen in j["waiters"].items() if t - seen < WAITER_TTL]
+
+
+# --- clients --------------------------------------------------------------------------------------
+
+def submit(q):
+    proj, key = name(q.get("proj"), "project"), name(q.get("key"), "key")
+    plat = q.get("plat")
+    if plat not in EXT:
+        raise HttpError(400, "invalid platform: %r" % plat)
+    kind = q.get("kind")
+    if kind not in KINDS:
+        raise HttpError(400, "invalid project kind: %r" % kind)
+    try:
+        cfg = json.loads(q.get("cfg") or "{}")
+    except ValueError:
+        raise HttpError(400, "cfg is not JSON")
+    cfg = {k: str(v) for k, v in cfg.items() if k in ("EXCL", "MB_SCHEME", "MB_CONTAINER", "MB_CONFIG", "MB_TASK", "MB_APK")}
+    # Without a waiter it is a warm-up (cider-build warm): nobody waits, and detach() does not cancel the job.
+    waiter = name(q["waiter"], "client") if q.get("waiter") else None
+    t = time.time()
+    with lock:
+        cf = cache_file({"proj": proj, "key": key, "plat": plat, "ext": EXT[plat]})
+        if not q.get("force") and os.path.isfile(cf) and os.path.getsize(cf) > 0:
+            touch(cf)
+            return "cached\n"
+        for j in jobs.values():
+            if j["state"] in ACTIVE and (j["proj"], j["key"], j["plat"]) == (proj, key, plat):
+                if waiter:
+                    j["waiters"][waiter] = t
+                else:
+                    j["warm"] = True
+                save_job(j)
+                return "job %s %d%s\n" % (j["id"], 0 if j["src"] else 1, "" if waiter else " joined")
+        jid = "%x-%s" % (int(t * 1000), secrets.token_hex(3))
+        j = {"id": jid, "proj": proj, "key": key, "plat": plat, "kind": kind, "ext": EXT[plat], "cfg": cfg,
+             "client": q.get("client") or "?", "state": "queued", "worker": None, "created": t, "started": None,
+             "finished": None, "rc": None, "retries": 0, "attempt": 0, "src": False, "seen": t,
+             "waiters": {waiter: t} if waiter else {}, "warm": not waiter, "log_offset": 0, "delivered_boot": None}
+        open(jpath(jid, ".log"), "wb").close()
+        save_job(j)
+        jobs[jid] = j
+        return "job %s 1%s\n" % (jid, "" if waiter else " new")
+
+
+def job_of(q):
+    j = jobs.get(q.get("job") or "")
+    if not j:
+        raise HttpError(404, "no such job: %r" % q.get("job"))
+    return j
+
+
+def poll(q):
+    t = time.time()
+    with lock:
+        j = job_of(q)
+        w = q.get("waiter")
+        if w and NAME.match(w) and j["state"] in ACTIVE:
+            j["waiters"][w] = t
+            save_job(j)
+        head = "%s %s %d %s" % (j["state"], j["worker"] or "-", position(j), "-" if j["rc"] is None else j["rc"])
+    off = int(q.get("offset") or 0)
+    with open(jpath(j["id"], ".log"), "rb") as f:
+        f.seek(off)
+        chunk = f.read(LOG_CHUNK)
+    return ("%s %d\n" % (head, off + len(chunk))).encode() + chunk
+
+
+def detach(q):
+    """A client stops waiting (Ctrl-C); with all=1, the panel cancels the job for everyone.
+    A warm job is not cancelled when its last client leaves: it was asked for without anyone waiting."""
+    with lock:
+        j = job_of(q)
+        if q.get("all"):
+            j["waiters"].clear()
+        else:
+            j["waiters"].pop(q.get("waiter") or "", None)
+        if j["state"] in ACTIVE and (q.get("all") or not (j.get("warm") or live_waiters(j, time.time()))):
+            note(j, "Cancelled from the panel." if q.get("all") else "Nobody is waiting for this job anymore: cancelling.")
+            move(j, "cancelled")
+        else:
+            save_job(j)
+        return "%s\n" % j["state"]
+
+
+# --- incremental source ---------------------------------------------------------------------------
+# bases/<proj>-<plat>/<sha256>: the files of the last source this project and platform uploaded, by content.
+# The client sends its manifest (POST /source/manifest), the hub answers with the hashes the base lacks, and
+# the client sends only those (PUT /source/delta). The hub rebuilds the whole .src.tar.gz from the manifest,
+# checking every hash, and only then sets `src`, exactly as a full upload does. Any error answers 4xx and the
+# client falls back to the full upload, which replaces the base.
+
+def base_dir(j):
+    return os.path.join(BASES, "%s-%s" % (j["proj"], j["plat"]))
+
+
+def base_lock(j):
+    with lock:
+        return base_locks.setdefault("%s-%s" % (j["proj"], j["plat"]), threading.Lock())
+
+
+def read_manifest(raw):
+    """[[name, "f"|"d"|"l", mode, mtime, sha256 | link target | ""], ...] in the order of the client's tar."""
+    entries = json.loads(gzip.decompress(raw))
+    for e in entries:
+        nm, kind, mode, mtime, data = e
+        if (not isinstance(nm, str) or not nm or nm.startswith("/") or ".." in nm.split("/") or "\0" in nm
+                or kind not in ("f", "d", "l") or not isinstance(mode, int) or not isinstance(mtime, (int, float))
+                or not isinstance(data, str) or (kind == "f" and not SHA256.match(data))):
+            raise HttpError(400, "invalid manifest entry: %r" % (e,))
+    return entries
+
+
+def source_manifest(q, raw):
+    entries = read_manifest(raw)
+    with lock:
+        j = job_of(q)
+        if j["state"] != "queued" or j["src"]:
+            raise HttpError(409, "job %s is %s and %s the source" % (j["id"], j["state"], "has" if j["src"] else "needs no"))
+        write_json(jpath(j["id"], ".manifest.json"), entries)
+    with base_lock(j):
+        try:
+            have = set(os.listdir(base_dir(j)))
+        except OSError:
+            raise HttpError(404, "the hub has no base tree for %s-%s yet" % (j["proj"], j["plat"]))
+    return "".join(h + "\n" for h in sorted({e[4] for e in entries if e[1] == "f"} - have))
+
+
+class Hashed:
+    """A file read through tarfile.addfile, hashing what it reads."""
+
+    def __init__(self, f):
+        self.f, self.h = f, hashlib.sha256()
+
+    def read(self, n=-1):
+        b = self.f.read(n)
+        self.h.update(b)
+        return b
+
+
+def replace_base(j, new):
+    d = base_dir(j)
+    old = "%s.old-%s" % (d, secrets.token_hex(4))
+    if os.path.isdir(d):
+        os.rename(d, old)
+    os.rename(new, d)
+    shutil.rmtree(old, ignore_errors=True)
+
+
+def rebuild(j, entries, delta, out):
+    """Writes the job's whole source to `out` from the base and the delta, and makes that its new base.
+    Under base_lock(j). Raises HttpError(409) if a blob is missing or does not match its hash."""
+    new = "%s.tmp-%s" % (base_dir(j), secrets.token_hex(4))
+    os.makedirs(new)
+    try:
+        with tarfile.open(delta, "r|gz") as t:
+            for m in t:
+                if not m.isfile() or not SHA256.match(m.name):
+                    raise HttpError(400, "the delta must only hold files named by their sha256")
+                with open(os.path.join(new, m.name), "wb") as f:
+                    h = Hashed(t.extractfile(m))
+                    shutil.copyfileobj(h, f, 1 << 20)
+                if h.h.hexdigest() != m.name:
+                    raise HttpError(409, "corrupt delta: %s does not match its content" % m.name)
+        with tarfile.open(out, "w:gz", compresslevel=1, format=tarfile.PAX_FORMAT) as t:
+            for nm, kind, mode, mtime, data in entries:
+                ti = tarfile.TarInfo(nm)
+                ti.mode, ti.mtime = mode, mtime
+                if kind == "d":
+                    ti.type = tarfile.DIRTYPE
+                    t.addfile(ti)
+                    continue
+                if kind == "l":
+                    ti.type, ti.linkname = tarfile.SYMTYPE, data
+                    t.addfile(ti)
+                    continue
+                blob = os.path.join(new, data)
+                if not os.path.exists(blob):
+                    try:
+                        os.link(os.path.join(base_dir(j), data), blob)
+                    except OSError:
+                        raise HttpError(409, "the base tree lacks %s (did another upload replace it?)" % data)
+                ti.size = os.path.getsize(blob)
+                with open(blob, "rb") as f:
+                    h = Hashed(f)
+                    t.addfile(ti, h)
+                if h.h.hexdigest() != data:
+                    raise HttpError(409, "corrupt base tree: %s does not match its content" % data)
+        replace_base(j, new)
+    except BaseException:
+        shutil.rmtree(new, ignore_errors=True)
+        raise
+
+
+def seed_base(j, tarball):
+    """After a full upload: the uploaded files become the base for its project and platform."""
+    try:
+        with base_lock(j):
+            new = "%s.tmp-%s" % (base_dir(j), secrets.token_hex(4))
+            os.makedirs(new)
+            try:
+                with tarfile.open(tarball, "r|gz") as t:
+                    for m in t:
+                        if m.isfile():
+                            part = os.path.join(new, ".part")
+                            with open(part, "wb") as f:
+                                h = Hashed(t.extractfile(m))
+                                shutil.copyfileobj(h, f, 1 << 20)
+                            os.replace(part, os.path.join(new, h.h.hexdigest()))
+                replace_base(j, new)
+            except BaseException:
+                shutil.rmtree(new, ignore_errors=True)
+                raise
+    except Exception as e:  # the next upload is a full one, and seeds it again
+        sys.stderr.write("Cannot seed the base tree of %s-%s from job %s: %r\n" % (j["proj"], j["plat"], j["id"], e))
+    finally:
+        os.unlink(tarball)
+
+
+def prune_bases():
+    """Base trees not used for KEEP_S go away, unless an upload is using them right now."""
+    t = time.time()
+    for d in os.scandir(BASES):
+        if not d.is_dir() or BASE_TMP.search(d.name) or t - d.stat().st_mtime <= KEEP_S:
+            continue
+        with lock:
+            bl = base_locks.setdefault(d.name, threading.Lock())
+        if bl.acquire(blocking=False):
+            try:
+                shutil.rmtree(d.path, ignore_errors=True)
+            finally:
+                bl.release()
+
+
+def got_source(j, path, via, size):
+    """Under the lock: the job's whole source is at `path`. The same step for a full and an incremental upload."""
+    if j["state"] == "queued" and not j["src"]:
+        os.replace(path, jpath(j["id"], ".src.tar.gz"))
+        j.update(src=True, src_via=via, src_bytes=size, src_at=time.time())
+        save_job(j)
+        schedule()
+        return True
+    return False
+
+
+# --- builder Macs ---------------------------------------------------------------------------------
+
+def new_worker(label):
+    return {"label": label, "enabled": False, "slots": 0, "user": None, "ram_gb": 0, "free_gb": 0,
+            "seen": 0, "boot": None, "running": [], "tools_ready": False, "xcode": None, "version": None, "info": {},
+            "update": False, "self_update": False, "update_error": None}
+
+
+def clean_info(v):
+    if not isinstance(v, dict):
+        return {}
+    return {k: v[k].strip()[:INFO_MAX] for k in INFO_KEYS
+            if isinstance(v.get(k), str) and v[k].strip() and v[k].isprintable()}
+
+
+def heartbeat(body):
+    label = name(body.get("label"), "Mac")
+    boot = name(body.get("boot"), "boot")
+    t = time.time()
+    with lock:
+        w = workers.setdefault(label, new_worker(label))
+        listed = [i for i in body.get("running", []) if isinstance(i, str)]
+        w.update(seen=t, boot=boot, running=listed, ram_gb=int(body.get("ram_gb") or 0),
+                 free_gb=float(body.get("free_gb") or 0), tools_ready=bool(body.get("tools_ready")),
+                 xcode=body.get("xcode"), version=body.get("version"), user=body.get("user") or w.get("user"),
+                 info=clean_info(body.get("info")), self_update=bool(body.get("self_update")),
+                 update_error=body["update_error"][:300] if isinstance(body.get("update_error"), str) else None)
+        if w.get("update") and w["version"] == agent_version():
+            w["update"] = False
+        cancel = []
+        for jid in listed:
+            j = jobs.get(jid)
+            if not j or j["state"] not in ON_WORKER or j["worker"] != label:
+                cancel.append(jid)
+                continue
+            j["seen"] = t
+            if j["state"] == "assigned":
+                move(j, "building")
+            else:
+                save_job(j)
+        for j in list(jobs.values()):
+            if (j["state"] in ON_WORKER and j["worker"] == label and j["id"] not in listed
+                    and j["delivered_boot"] and j["delivered_boot"] != boot):
+                lose(j, "The agent on %s restarted in the middle of the job" % label)
+        schedule()
+        out = []
+        for j in jobs.values():
+            if j["state"] == "assigned" and j["worker"] == label and j["id"] not in listed:
+                j["delivered_boot"] = boot
+                j["started"] = t
+                save_job(j)
+                out.append({k: j[k] for k in ("id", "attempt", "proj", "key", "plat", "ext", "kind", "cfg", "log_offset")})
+        w["running"] = listed + [o["id"] for o in out]
+        save_worker(w)
+        resp = {"jobs": out, "cancel": cancel}
+        if w.get("update"):
+            resp["update"] = {"version": agent_version()}
+        return resp
+
+
+def agent_version():
+    """What the agents compute from their own cider-build-worker and build.sh; None if the hub lacks either."""
+    try:
+        with open(os.path.join(BIN, "cider-build-worker"), "rb") as f, open(os.path.join(BIN, "build.sh"), "rb") as g:
+            return hashlib.sha256(f.read() + b"\0" + g.read()).hexdigest()[:12]
+    except OSError:
+        return None
+
+
+def request_update(label):
+    """The panel asks a Mac to update its agent: it takes no new jobs, and once idle it fetches /bin/ and restarts."""
+    label = name(label, "Mac")
+    with lock:
+        w = workers.get(label)
+        if not w:
+            raise HttpError(404, "unknown Mac: %s" % label)
+        if not w.get("self_update"):
+            raise HttpError(409, "its agent predates updates from the panel: run cider-build add %s once" % label)
+        version = agent_version()
+        if not version:
+            raise HttpError(409, "the hub has no cider-build-worker and build.sh in %s to hand out" % BIN)
+        if w.get("version") == version:
+            raise HttpError(409, "%s already runs the hub's agent (%s)" % (label, version))
+        w["update"] = True
+        save_worker(w)
+        return "updating %s\n" % label
+
+
+def worker_job(q):
+    j = job_of(q)
+    if j["worker"] != q.get("label") or str(j["attempt"]) != q.get("attempt") or j["state"] not in ON_WORKER:
+        raise HttpError(409, "job %s no longer belongs to %s" % (j["id"], q.get("label")))
+    return j
+
+
+def worker_log(q, body):
+    with lock:
+        j = worker_job(q)
+        with open(jpath(j["id"], ".log"), "r+b") as f:
+            f.seek(min(int(q.get("offset") or 0), os.fstat(f.fileno()).st_size))
+            f.write(body)
+            f.truncate()
+            return "%d\n" % f.tell()
+
+
+def set_worker(label, q):
+    label = name(label, "Mac")
+    why = refusal(label)
+    if why:
+        raise HttpError(400, why)
+    with lock:
+        w = workers.setdefault(label, new_worker(label))
+        ram = int(q.get("ram") or w.get("ram_gb") or 0)
+        slots = int(q.get("slots") or 0) or max(1, ram // 24)
+        if not 1 <= slots <= 99:
+            raise HttpError(400, "slots must be between 1 and 99")
+        w.update(enabled=True, slots=slots, user=q.get("user") or w.get("user"), ram_gb=ram or w.get("ram_gb", 0))
+        save_worker(w)
+        schedule()
+        return "%s %d\n" % (label, slots)
+
+
+def drop_worker(label):
+    with lock:
+        w = workers.get(name(label, "Mac"))
+        if w:
+            w["enabled"] = False
+            save_worker(w)
+        return "running %d\n" % used(label)
+
+
+# --- updating the hub from its git repository (update_url; off without it) -------------------------
+
+class ReleaseError(Exception):
+    pass
+
+
+def update_source():
+    return None if CONFIG.update_url == OFF else CONFIG.update_url
+
+
+def git(*args):
+    ssh = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+    if CONFIG.update_ssh_key:
+        ssh += " -i %s -o IdentitiesOnly=yes" % shlex.quote(CONFIG.update_ssh_key)
+    r = subprocess.run(["git", "--git-dir=" + MIRROR] + list(args), capture_output=True, timeout=60,
+                       env=dict(os.environ, GIT_SSH_COMMAND=ssh, GIT_TERMINAL_PROMPT="0"))
+    if r.returncode:
+        # Whole stderr: the last line of an auth failure is only "and the repository exists."
+        err = " ".join(r.stderr.decode(errors="replace").split()) or "exit %d" % r.returncode
+        raise ReleaseError(redact("git %s: %s" % (args[0], err)))  # the panel shows it to the whole tailnet
+    return r.stdout
+
+
+def fetch():
+    key = CONFIG.update_ssh_key
+    if key and not os.path.exists(key):
+        raise ReleaseError("update_ssh_key %s does not exist (%s)" % (key, CONFIG_PATH))
+    if not os.path.isdir(MIRROR):
+        subprocess.run(["git", "init", "--bare", "-q", MIRROR], check=True, capture_output=True, timeout=60)
+    b = CONFIG.update_branch
+    git("fetch", "-q", "--no-tags", update_source(), "+refs/heads/%s:refs/heads/%s" % (b, b))
+
+
+def release_digest(read):
+    h = hashlib.sha256()
+    for src, _, _ in RELEASE_FILES:
+        data = read(src)
+        h.update(b"%s\0%d\0" % (src.encode(), -1 if data is None else len(data)))
+        h.update(data or b"")
+    return h.hexdigest()
+
+
+def installed_file(src):
+    dest = next(d for s, d, _ in RELEASE_FILES if s == src)
+    try:
+        with open(os.path.join(BIN, dest), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def deploy_pub():
+    if not CONFIG.update_ssh_key:
+        return None
+    try:
+        with open(CONFIG.update_ssh_key + ".pub") as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def release_facts():
+    """Compares what BIN has with the branch tip in the mirror. Call after fetch()."""
+    sha, subject, ts = git("log", "-1", "--format=%H%x00%s%x00%ct",
+                           "refs/heads/" + CONFIG.update_branch).decode().strip().split("\0")
+    available = release_digest(installed_file) != release_digest(lambda src: git("show", "%s:%s" % (sha, src)))
+    installed = None
+    if not available:
+        installed = sha
+    else:
+        try:
+            with open(os.path.join(BIN, ".commit")) as f:
+                installed = f.read().strip() or None
+        except OSError:
+            pass
+    behind, commits = (0 if not available else None), []
+    if available and installed:
+        try:
+            git("cat-file", "-e", installed + "^{commit}")
+        except ReleaseError:
+            pass  # a commit the mirror does not have (a branch, or a rewritten history): unknown distance
+        else:
+            span = "%s..%s" % (installed, sha)
+            behind = int(git("rev-list", "--count", span))
+            commits = [dict(zip(("sha", "subject"), line.split("\0", 1)))
+                       for line in git("log", "-20", "--format=%h%x00%s", span).decode().splitlines()]
+    return {"installed": installed, "remote": {"commit": sha, "subject": subject, "time": int(ts)},
+            "available": available, "behind": behind, "commits": commits}
+
+
+def check_release():
+    with lock:
+        release["deploy_key"] = deploy_pub()
+    fetch()
+    facts = release_facts()
+    with lock:
+        release.update(facts, checked=time.time())
+    return facts
+
+
+def stage(sha, staged):
+    shutil.rmtree(staged, ignore_errors=True)
+    for src, dest, mode in RELEASE_FILES:
+        path = os.path.join(staged, dest)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(git("show", "%s:%s" % (sha, src)))
+        os.chmod(path, mode)
+    for f in ("cider-build-hub", "cider-build-worker"):
+        with open(os.path.join(staged, f), "rb") as fh:
+            try:
+                compile(fh.read(), f, "exec")
+            except (SyntaxError, ValueError) as e:
+                raise ReleaseError("%s does not compile: %s" % (f, e))
+    for f in ("install.sh", "cider-build", "build.sh"):
+        r = subprocess.run(["/bin/bash", "-n", os.path.join(staged, f)], capture_output=True, timeout=30)
+        if r.returncode:
+            raise ReleaseError("%s is not valid bash: %s" % (f, r.stderr.decode(errors="replace").strip()[-200:]))
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def smoke(staged):
+    """Starts the candidate hub on its own home and ports and requires /status and the panel to answer. It reads
+    this hub's hub.json, so a release that cannot read the live settings is refused here instead of crash-looping
+    under launchd after the swap. Env turns off only what must not run twice: fetching and the drain command."""
+    tmp = tempfile.mkdtemp(prefix="cider-build-smoke-")
+    try:
+        shutil.copytree(staged, os.path.join(tmp, "bin"))
+        if os.path.exists(CONFIG_PATH):
+            shutil.copy(CONFIG_PATH, os.path.join(tmp, "hub.json"))
+        port = free_port()
+        log = open(os.path.join(tmp, "hub.log"), "w+")
+        proc = subprocess.Popen([sys.executable, os.path.join(tmp, "bin", "cider-build-hub")], stdout=log, stderr=log,
+                                env=dict(os.environ, CIDER_BUILD_HOME=tmp, CIDER_BUILD_PORT=str(port),
+                                         CIDER_BUILD_TAILNET_PORT=str(free_port()), CIDER_BUILD_UPDATE_CHECK_S="0",
+                                         CIDER_BUILD_REPO="", CIDER_BUILD_DRAIN_COMMAND="", PATH="/usr/bin:/bin"))
+        try:
+            end, last = time.time() + SMOKE_S, "no answer"
+            while time.time() < end and proc.poll() is None:
+                try:
+                    for path in ("/status", "/"):
+                        with urllib.request.urlopen("http://127.0.0.1:%d%s" % (port, path), timeout=5) as r:
+                            r.read()
+                    return
+                except (OSError, ValueError) as e:
+                    last = "GET %s: %s" % (path, e)
+                time.sleep(0.2)
+            log.seek(0)
+            tail = log.read().strip().splitlines()
+            raise ReleaseError("the new hub did not start (%s)%s" % (
+                "exit %d" % proc.returncode if proc.poll() is not None else last, ": " + tail[-1] if tail else ""))
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            log.close()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def update_release():
+    """Installs the branch tip into BIN only if it compiles and starts, then exits for launchd to restart the hub."""
+    facts = check_release()
+    if not facts["available"]:
+        raise ReleaseError("already up to date")
+    sha = facts["remote"]["commit"]
+    staged, previous = os.path.join(BIN, ".staged"), os.path.join(BIN, ".previous")
+    try:
+        stage(sha, staged)
+        smoke(staged)
+    except Exception:
+        shutil.rmtree(staged, ignore_errors=True)
+        raise
+    shutil.rmtree(previous, ignore_errors=True)
+    for dest in [d for _, d, _ in RELEASE_FILES] + [".commit"]:
+        if os.path.exists(os.path.join(BIN, dest)):
+            os.makedirs(os.path.dirname(os.path.join(previous, dest)), exist_ok=True)
+            shutil.copy2(os.path.join(BIN, dest), os.path.join(previous, dest))
+    for _, dest, _ in RELEASE_FILES:
+        os.makedirs(os.path.dirname(os.path.join(BIN, dest)), exist_ok=True)
+        os.replace(os.path.join(staged, dest), os.path.join(BIN, dest))
+    with open(os.path.join(BIN, ".commit.tmp"), "w") as f:
+        f.write(sha + "\n")
+    os.replace(os.path.join(BIN, ".commit.tmp"), os.path.join(BIN, ".commit"))
+    shutil.rmtree(staged, ignore_errors=True)
+    sys.stderr.write("%s update: installed %s; restarting once no transfer is in flight\n" % (
+        time.strftime("%Y-%m-%d %H:%M:%S"), sha[:12]))
+    while True:
+        with lock:
+            release["phase"] = "restarting"
+            if not transfers:
+                sys.stderr.flush()
+                os._exit(0)  # with the lock held, so no transfer starts in between; launchd starts the new hub
+        time.sleep(0.2)
+
+
+def start_release(phase, work):
+    if not update_source():
+        raise HttpError(409, "hub updates are off: update_url in %s is unset or off" % CONFIG_PATH)
+    with lock:
+        if release["phase"] != "idle":
+            raise HttpError(409, "the hub is already %s" % release["phase"])
+        release.update(phase=phase, error=None)
+
+    def job():
+        try:
+            work()
+            err = None
+        except Exception as e:  # any failure is shown in the panel and leaves BIN as it was
+            err = (str(e).strip().splitlines() or [repr(e)])[-1][:300]
+            sys.stderr.write("%s %s failed: %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), phase, err))
+        with lock:
+            release.update(phase="idle", error=err)
+
+    threading.Thread(target=job, daemon=True).start()
+    return "%s\n" % phase
+
+
+@contextlib.contextmanager
+def transfer():
+    global transfers
+    with lock:
+        transfers += 1
+    try:
+        yield
+    finally:
+        with lock:
+            transfers -= 1
+
+
+# --- plain-text status ----------------------------------------------------------------------------
+
+def mmss(s):
+    s = max(0, int(s))
+    return "%dm%02ds" % (s // 60, s % 60)
+
+
+def describe(i):
+    """mac-mini-2.example.ts.net 100.64.0.12 · Apple M1 Max (MacBookPro18,2) · macOS 26.7.2 · …"""
+    parts = [" ".join(x for x in (i.get("dns"), i.get("tailnet_ip")) if x),
+             "%s (%s)" % (i["chip"], i["model"]) if i.get("chip") and i.get("model") else i.get("chip") or i.get("model"),
+             "macOS " + i["macos"] if i.get("macos") else None,
+             "LAN %s %s" % (i.get("lan_if", "?"), i["lan_ip"]) if i.get("lan_ip") else None,
+             "host " + i["host"] if i.get("host") else None,
+             "tailnet " + i["tailnet"] if i.get("tailnet") else None]
+    return " · ".join(p for p in parts if p)
+
+
+def status():
+    t = time.time()
+    with lock:
+        out = ["%-17s %-22s %-8s %-11s %s" % ("MAC", "STATE", "SLOTS", "FREE RAM", "XCODE")]
+        shown = shown_workers(t)
+        for w in shown:
+            st = worker_state(w, t)[1]
+            out.append("%-17s %-22s %-8s %-11s %s" % (w["label"], st, "%d/%d" % (used(w["label"]), w.get("slots", 0)),
+                                                      "%.0f/%d GB" % (w.get("free_gb", 0), w.get("ram_gb", 0)), w.get("xcode") or "-"))
+        about = [(w["label"], describe(w.get("info") or {})) for w in shown]
+        if any(d for _, d in about):
+            out.append("")
+            out.extend("%-17s %s" % (label, d) for label, d in about if d)
+        act = sorted((j for j in jobs.values() if j["state"] in ACTIVE), key=lambda j: j["created"])
+        run = [j for j in act if j["state"] in ON_WORKER]
+        queued = [j for j in act if j["state"] == "queued"]
+        out.append("")
+        if run:
+            out.append("%-19s %-22s %-8s %-10s %-17s %-10s %s" % ("JOB", "PROJECT", "PLAT", "CLIENT", "MAC", "STATE", "TIME"))
+            for j in run:
+                out.append("%-19s %-22s %-8s %-10s %-17s %-10s %s" % (j["id"], j["proj"], j["plat"], j["client"], j["worker"],
+                                                                     j["state"], mmss(t - (j["started"] or j["created"]))))
+        else:
+            out.append("No builds in progress.")
+        out.append("")
+        out.append("Queued: %d" % len(queued))
+        for i, j in enumerate(queued, 1):
+            out.append("  %d. %s %s %s (%s, waiting %s%s)" % (i, j["id"], j["proj"], j["plat"], j["client"], mmss(t - j["created"]),
+                                                          "" if j["src"] else ", no source yet"))
+        done = sorted((j for j in jobs.values() if j["state"] not in ACTIVE), key=lambda j: -(j["finished"] or 0))[:8]
+        if done:
+            out.append("")
+            out.append("Recently finished:")
+            for j in done:
+                took = (j["finished"] or t) - (j["started"] or j["created"])
+                out.append("  %s %-22s %-8s %-10s %-17s rc=%s %s %s ago" % (
+                    j["id"], j["proj"], j["plat"], j["state"], j["worker"] or "-", "-" if j["rc"] is None else j["rc"],
+                    mmss(took), mmss(t - (j["finished"] or t))))
+        return "\n".join(out) + "\n"
+
+
+# --- panel: read-only JSON ------------------------------------------------------------------------
+
+def plain(v):
+    """NaN and Infinity are not valid JSON: a heartbeat with an odd free_gb or xcode would break the panel's JSON.parse."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    if isinstance(v, dict):
+        return {str(k): plain(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [plain(x) for x in v]
+    return v
+
+
+def job_summary(j, t):
+    s = {k: j.get(k) for k in JOB_SUMMARY}
+    s.update(position=position(j), waiters=len(live_waiters(j, t)))
+    return s
+
+
+def worker_summary(w, t, agent):
+    code, text = worker_state(w, t)
+    return plain({"label": w["label"], "state": code, "state_text": text, "enabled": bool(w.get("enabled")),
+                  "slots": w.get("slots", 0), "used": used(w["label"]), "ram_gb": w.get("ram_gb", 0),
+                  "free_gb": w.get("free_gb", 0), "xcode": w.get("xcode"), "version": w.get("version"),
+                  "user": w.get("user"), "seen": w.get("seen", 0), "boot": w.get("boot"),
+                  "running": w.get("running", []), "info": w.get("info") or {},
+                  "agent_current": bool(agent) and w.get("version") == agent, "self_update": bool(w.get("self_update")),
+                  "update": bool(w.get("update")), "update_error": w.get("update_error")})
+
+
+def api_state():
+    t = time.time()
+    agent = agent_version()
+    with lock:
+        ended = [j["finished"] or 0 for j in jobs.values() if j["state"] not in ACTIVE]
+        return json.dumps({
+            "now": t,
+            "hub": {"url": hub_url.get("canonical"), "ip": hub_url.get("ip"), "port": CONFIG.port,
+                    "tailnet_port": CONFIG.tailnet_port, "label": hub_url.get("label"), "user": getpass.getuser(),
+                    "exclude": sorted(CONFIG.exclude)},
+            "workers": [worker_summary(w, t, agent) for w in shown_workers(t)],
+            "active": [job_summary(j, t) for j in sorted((j for j in jobs.values() if j["state"] in ACTIVE),
+                                                         key=lambda j: j["created"])],
+            "history_rev": "%d-%r" % (len(ended), max(ended, default=0)),
+            "release": dict(release),
+            "agent": agent,
+        })
+
+
+def api_history():
+    t = time.time()
+    with lock:
+        done = sorted((j for j in jobs.values() if j["state"] not in ACTIVE), key=lambda j: -(j["finished"] or 0))
+        return json.dumps({"now": t, "jobs": [job_summary(j, t) for j in done]})
+
+
+def api_cache():
+    projects = []
+    for d in sorted(os.scandir(CACHE), key=lambda d: d.name):
+        if d.name.startswith(".") or not d.is_dir():
+            continue
+        files = sorted(({"name": f.name, "size": f.stat().st_size, "mtime": f.stat().st_mtime}
+                        for f in os.scandir(d.path) if not f.name.startswith(".") and f.is_file()),
+                       key=lambda f: -f["mtime"])
+        projects.append({"proj": d.name, "size": sum(f["size"] for f in files), "files": files})
+    with lock:
+        aff = sorted(affinity.items())
+    return json.dumps({"now": time.time(), "projects": projects,
+                       "affinity": [dict(zip(("proj", "plat"), k.rsplit("-", 1)), worker=w) for k, w in aff]})
+
+
+def api_job(q):
+    with lock:
+        j = job_of(q)
+        return json.dumps({"now": time.time(), "job": dict(j, position=position(j), log_size=log_size(j["id"]))})
+
+
+def panel():
+    """The panel HTML and its CSP, which only allows the <script> and <style> from that same file."""
+    try:
+        with open(PANEL, "rb") as f:
+            body = f.read()
+    except OSError:
+        raise HttpError(404, "%s is missing next to cider-build-hub" % os.path.basename(PANEL))
+    text = body.decode()
+    digest = {}
+    for tag in ("script", "style"):
+        found = re.findall(r"<%s>(.*?)</%s>" % (tag, tag), text, re.S)
+        if len(found) != 1 or text.count("<" + tag) != 1:
+            raise HttpError(500, "%s must have exactly one <%s> without attributes" % (os.path.basename(PANEL), tag))
+        digest[tag] = base64.b64encode(hashlib.sha256(found[0].encode()).digest()).decode()
+    csp = ("default-src 'none'; script-src 'sha256-%s'; style-src 'sha256-%s'; connect-src 'self'; img-src 'self' data:; font-src 'self'; "
+           "base-uri 'none'; form-action 'none'; frame-ancestors 'none'" % (digest["script"], digest["style"]))
+    return body, {"Content-Security-Policy": csp, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+                  "Cache-Control": "no-store"}
+
+
+def font(name):
+    """Geist and Geist Mono, served by the hub: the panel requests nothing outside the tailnet."""
+    if name not in FONT_FILES:
+        raise HttpError(404, "no such font: %s" % name)
+    try:
+        with open(os.path.join(FONTS, name), "rb") as f:
+            return f.read()
+    except OSError:
+        raise HttpError(404, "fonts/%s is missing next to cider-build-hub" % name)
+
+
+# --- HTTP -----------------------------------------------------------------------------------------
+
+def stream_to(rfile, length, path):
+    with open(path, "wb") as f:
+        left = length
+        while left > 0:
+            b = rfile.read(min(1 << 20, left))
+            if not b:
+                raise HttpError(400, "incomplete body")
+            f.write(b)
+            left -= len(b)
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "cider-build-hub"
+
+    def log_message(self, fmt, *args):
+        if "/w/heartbeat" in self.path or "/poll" in self.path or self.path.startswith(("/api/", "/fonts/")):
+            return
+        sys.stderr.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), fmt % args))
+
+    def reply(self, code, body, ctype="text/plain; charset=utf-8", headers=None):
+        if isinstance(body, str):
+            body = body.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_file(self, path):
+        if not os.path.isfile(path):
+            raise HttpError(404, "no such file: %s" % os.path.basename(path))
+        with open(path, "rb") as f:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(os.fstat(f.fileno()).st_size))
+            self.end_headers()
+            shutil.copyfileobj(f, self.wfile, 1 << 20)
+
+    def send_cache(self, path):
+        with lock:
+            serving[path] = serving.get(path, 0) + 1
+            touch(path)
+        try:
+            self.send_file(path)
+        finally:
+            with lock:
+                serving[path] -= 1
+                if not serving[path]:
+                    del serving[path]
+
+    def length(self):
+        return int(self.headers.get("Content-Length") or 0)
+
+    def body(self):
+        return self.rfile.read(self.length())
+
+    def form(self):
+        u = urlsplit(self.path)
+        q = {k: v[-1] for k, v in parse_qs(u.query).items()}
+        return u.path, q
+
+    def handle_any(self, method):
+        try:
+            path, q = self.form()
+            parts = path.strip("/").split("/")
+            if method == "GET" and path == "/status":
+                return self.reply(200, status())
+            if method == "GET" and path in ("/", "/panel"):
+                body, headers = panel()
+                return self.reply(200, body, "text/html; charset=utf-8", headers)
+            if method == "GET" and len(parts) == 2 and parts[0] == "fonts":
+                return self.reply(200, font(parts[1]), "font/woff2",
+                                  {"Cache-Control": "public, max-age=604800", "X-Content-Type-Options": "nosniff"})
+            if method == "GET" and path == "/api/state":
+                return self.reply(200, api_state(), *JSON)
+            if method == "GET" and path == "/api/history":
+                return self.reply(200, api_history(), *JSON)
+            if method == "GET" and path == "/api/cache":
+                return self.reply(200, api_cache(), *JSON)
+            if method == "GET" and path == "/api/job":
+                return self.reply(200, api_job(q), *JSON)
+            if method == "GET" and path == "/poll":
+                return self.reply(200, poll(q), "application/octet-stream")
+            if method == "GET" and parts[0] == "cache" and len(parts) == 3:
+                with transfer():
+                    return self.send_cache(os.path.join(CACHE, name(parts[1], "project"), name(parts[2], "file")))
+            if method == "GET" and path in ("/join", "/bin/install.sh"):
+                return self.reply(200, served_install(path == "/join"), "text/x-shellscript; charset=utf-8")
+            if method == "GET" and parts[0] == "bin" and len(parts) == 2 and parts[1] in SHIPPED.union(LEGACY_BIN):
+                return self.send_file(os.path.join(BIN, LEGACY_BIN.get(parts[1], parts[1])))
+            if method == "GET" and path == "/source":
+                with lock:
+                    j = job_of(q)
+                return self.send_file(jpath(j["id"], ".src.tar.gz"))
+            if method == "POST" and path == "/submit":
+                q.update({k: v[-1] for k, v in parse_qs(self.body().decode()).items()})
+                return self.reply(200, submit(q))
+            if method == "PUT" and path == "/source":
+                with transfer(), self.carrying_source(q) as j:
+                    out = self.upload_source(j)
+                    return self.reply(200, out)
+            if method == "POST" and path == "/source/manifest":
+                with self.carrying_source(q):
+                    out = source_manifest(q, self.body())
+                return self.reply(200, out)
+            if method == "PUT" and path == "/source/delta":
+                with transfer(), self.carrying_source(q) as j:
+                    out = self.upload_delta(j)
+                    return self.reply(200, out)
+            if method == "POST" and path == "/detach":
+                return self.reply(200, detach(q))
+            if method == "POST" and path == "/w/heartbeat":
+                return self.reply(200, json.dumps(heartbeat(json.loads(self.body() or b"{}"))), "application/json")
+            if method == "POST" and path == "/w/log":
+                return self.reply(200, worker_log(q, self.body()))
+            if method == "POST" and path == "/w/result":
+                with transfer():
+                    return self.reply(200, self.result(q))
+            if method == "POST" and path == "/hub/check":
+                return self.reply(200, start_release("checking", check_release))
+            if method == "POST" and path == "/hub/update":
+                return self.reply(200, start_release("updating", update_release))
+            if method == "POST" and parts[0] == "workers" and len(parts) == 3 and parts[2] == "update":
+                return self.reply(200, request_update(parts[1]))
+            if method == "GET" and parts[0] == "workers" and len(parts) == 3 and parts[2] == "admit":
+                return self.reply(200, admit(parts[1], q))
+            if parts[0] == "workers" and len(parts) == 2:
+                if method == "PUT":
+                    return self.reply(200, set_worker(parts[1], q))
+                if method == "DELETE":
+                    return self.reply(200, drop_worker(parts[1]))
+                if method == "GET":
+                    with lock:
+                        return self.reply(200, "running %d\n" % used(parts[1]))
+            raise HttpError(404, "unknown route: %s %s" % (method, path))
+        except HttpError as e:
+            self.reply(e.code, "%s\n" % e)
+        except (ValueError, KeyError, TypeError) as e:
+            self.reply(400, "invalid request: %r\n" % e)
+
+    @contextlib.contextmanager
+    def carrying_source(self, q):
+        """Around a request that carries a job's source: POST /source/manifest, PUT /source, PUT /source/delta.
+        While it is open, recover() does not cancel the job, and SOURCE_TTL counts again from when it ends: the
+        client may still be packing what it sends next (the delta after the manifest, the whole project after a
+        refused delta). A request that receives nothing for SOURCE_TTL is cut off with 408 and does not restart
+        the count, so a client that vanished mid-upload loses its job about SOURCE_TTL after its last byte.
+        Takes `lock` only on entering and leaving, so the caller may take base_lock(j) inside."""
+        with lock:
+            j = job_of(q)
+            s = sourcing.setdefault(j["id"], [0, 0])
+            s[0] += 1
+        self.connection.settimeout(SOURCE_TTL)
+        stalled = False
+        try:
+            yield j
+        except socket.timeout:
+            stalled = True
+            raise HttpError(408, "nothing received for %d s: upload dropped" % SOURCE_TTL)
+        finally:
+            with lock:
+                s[0] -= 1
+                if not stalled:
+                    s[1] = time.time()
+
+    def upload_source(self, j):
+        tmp = jpath(j["id"], ".src.tmp.%s" % secrets.token_hex(4))
+        seed = jpath(j["id"], ".seed.tmp.%s" % secrets.token_hex(4))
+        seeding = False
+        try:
+            stream_to(self.rfile, self.length(), tmp)
+            os.link(tmp, seed)  # the base is seeded from it after replying, even if the job finishes first
+            with lock:
+                seeding = got_source(j, tmp, "full", os.path.getsize(seed))
+                state = j["state"]
+            if seeding:
+                threading.Thread(target=seed_base, args=(j, seed), daemon=True).start()
+            return "%s\n" % state
+        finally:
+            for p in (tmp,) if seeding else (tmp, seed):
+                if os.path.exists(p):
+                    os.unlink(p)
+
+    def upload_delta(self, j):
+        delta = jpath(j["id"], ".delta.tmp.%s" % secrets.token_hex(4))
+        out = jpath(j["id"], ".src.tmp.%s" % secrets.token_hex(4))
+        try:
+            try:
+                with open(jpath(j["id"], ".manifest.json")) as f:
+                    entries = json.load(f)
+            except OSError:
+                raise HttpError(409, "job %s has no manifest: POST /source/manifest first" % j["id"])
+            stream_to(self.rfile, self.length(), delta)
+            try:
+                with base_lock(j):
+                    rebuild(j, entries, delta, out)
+            except (OSError, EOFError, tarfile.TarError, zlib.error) as e:
+                raise HttpError(409, "cannot rebuild the source: %r" % e)
+            with lock:
+                got_source(j, out, "delta", os.path.getsize(delta))
+                return "%s\n" % j["state"]
+        finally:
+            for p in (delta, out):
+                if os.path.exists(p):
+                    os.unlink(p)
+
+    def result(self, q):
+        with lock:
+            j = worker_job(q)
+        rc = int(q.get("rc"))
+        tmp = None
+        try:
+            if rc == 0:
+                os.makedirs(os.path.join(CACHE, j["proj"]), exist_ok=True)
+                tmp = os.path.join(CACHE, j["proj"], ".tmp-%s-%s" % (j["id"], secrets.token_hex(4)))
+                stream_to(self.rfile, self.length(), tmp)
+            with lock:
+                j = worker_job(q)
+                if rc == 0 and os.path.getsize(tmp) > 0:
+                    os.replace(tmp, cache_file(j))
+                    affinity["%s-%s" % (j["proj"], j["plat"])] = j["worker"]
+                    write_json(AFFINITY, affinity)
+                    move(j, "done", rc=0)
+                else:
+                    move(j, "failed", rc=rc or -2)
+                return "%s\n" % j["state"]
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+
+    def do_GET(self):
+        self.handle_any("GET")
+
+    def do_POST(self):
+        self.handle_any("POST")
+
+    def do_PUT(self):
+        self.handle_any("PUT")
+
+    def do_DELETE(self):
+        self.handle_any("DELETE")
+
+
+def served_install(join):
+    """install.sh as GET /bin/install.sh and GET /join serve it: a prelude that points it at this hub, then the file
+    unchanged. So `curl <hub>/bin/install.sh | bash -s client` saves this hub, and a Mac removed with
+    `... | bash -s -- worker --remove` leaves the hub it came from."""
+    url = hub_url.get("canonical")
+    if not url:
+        raise HttpError(503, "the hub does not know its tailnet name yet; retry in a few seconds")
+    with open(os.path.join(BIN, "install.sh")) as f:
+        body = f.read()
+    prelude = "#!/usr/bin/env bash\n# %s\nexport CIDER_BUILD_HUB=%s\n" % (
+        "/join from cider-build-hub: adds this Mac to the build fleet (install.sh worker)." if join
+        else "install.sh from cider-build-hub, pointed at this hub.", shlex.quote(url))
+    if join:
+        prelude += "[ \"${1:-}\" = worker ] || set -- worker \"$@\"\n"
+    return prelude + body
+
+
+def admit(label, q):
+    """GET /workers/<label>/admit?host=<LocalHostName>: install.sh worker asks before it touches the Mac."""
+    why = refusal(name(label, "Mac"), q.get("host"))
+    if why:
+        raise HttpError(403, why + " Not touching anything on this Mac.")
+    return "ok\n"
+
+
+def tailnet_self():
+    """(IPv4, DNS name, HostName) of this Mac on the tailnet, or None if tailscale is not connected yet. The HostName
+    is the label this Mac would join the fleet with, which refusal() turns away."""
+    try:
+        out = subprocess.run(["tailscale", "status", "--json"], capture_output=True, timeout=20).stdout
+        st = json.loads(out)
+        me = st["Self"]
+        ip = next(a for a in me["TailscaleIPs"] if "." in a)
+        return (ip, me["DNSName"].rstrip("."), me.get("HostName")) if st.get("BackendState") == "Running" else None
+    except (OSError, ValueError, KeyError, StopIteration, subprocess.SubprocessError):
+        return None
+
+
+def listen_tailnet():
+    """Listens on the tailnet IP as soon as tailscale is connected. Does not block 127.0.0.1. Plain HTTP on purpose:
+    the tailnet already encrypts and authenticates, and tailscale serve only answers on the full name."""
+    while True:
+        me = tailnet_self()
+        if me:
+            ip, dns, label = me
+            hub_url.update(canonical="https://%s:%d" % (dns, CONFIG.port), ip=ip, label=label)
+            try:
+                srv = ThreadingHTTPServer((ip, CONFIG.tailnet_port), Handler)
+            except OSError as e:
+                sys.stderr.write("Cannot listen on %s:%d yet: %s\n" % (ip, CONFIG.tailnet_port, e))
+            else:
+                srv.daemon_threads = True
+                sys.stderr.write("cider-build-hub also listening on http://%s:%d (%s)\n" % (
+                    ip, CONFIG.tailnet_port, hub_url["canonical"]))
+                srv.serve_forever()
+        time.sleep(5)
+
+
+def refresh_drained():
+    """Runs drain_command and keeps the Macs it prints, one per line, out of the pool. When the command fails the
+    last set stays: a source of truth that does not answer has not let anyone back in."""
+    global drain_error
+    if not CONFIG.drain_command:
+        return
+    try:
+        r = subprocess.run(["/bin/sh", "-c", CONFIG.drain_command], cwd="/tmp", capture_output=True, timeout=20)
+        err = "exit %d: %s" % (r.returncode, r.stderr.decode(errors="replace").strip()[-200:]) if r.returncode else None
+    except (OSError, subprocess.SubprocessError) as e:
+        err = str(e)
+    if err != drain_error:
+        sys.stderr.write("%s drain_command %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), "failed, keeping the last set: "
+                                                    + err if err else "answers again"))
+        drain_error = err
+    if err:
+        return
+    out = {n.strip() for n in r.stdout.decode(errors="replace").splitlines()}
+    with lock:
+        drained.clear()
+        drained.update(n for n in out if NAME.match(n) and not n.startswith("."))
+
+
+def housekeeping():
+    n, check_at = 0, time.time() + 5
+    while True:
+        if update_source() and CONFIG.update_check_s > 0 and time.time() >= check_at:
+            check_at = time.time() + CONFIG.update_check_s
+            try:
+                start_release("checking", check_release)
+            except HttpError:
+                pass  # an update or a check from the panel is already running
+        if n % 2 == 0:
+            refresh_drained()
+        if n % 720 == 0:
+            prune_bases()
+        with lock:
+            recover()
+            schedule()
+            if n % (CONFIG.cache_prune_s // 5) == 0:
+                prune_cache()
+        n += 1
+        time.sleep(5)
+
+
+def load():
+    for d in (JOBS, WORKERS, CACHE, BIN, BASES):
+        os.makedirs(d, exist_ok=True)
+    for d in os.listdir(BASES):  # an upload that did not finish
+        if BASE_TMP.search(d):
+            shutil.rmtree(os.path.join(BASES, d), ignore_errors=True)
+    for d in (JOBS, WORKERS):
+        for f in os.listdir(d):
+            if ".tmp" in f:
+                os.unlink(os.path.join(d, f))
+    t = time.time()
+    for f in os.listdir(JOBS):
+        if f.endswith(".json"):
+            with open(os.path.join(JOBS, f)) as fh:
+                j = json.load(fh)
+            if j["state"] in ON_WORKER:
+                j["seen"] = t  # the hub was down: Macs get LOST_TTL to name it again
+            jobs[j["id"]] = j
+    for f in os.listdir(WORKERS):
+        if f.endswith(".json"):
+            with open(os.path.join(WORKERS, f)) as fh:
+                w = json.load(fh)
+            workers[w["label"]] = w
+    if os.path.exists(AFFINITY):
+        with open(AFFINITY) as fh:
+            affinity.update(json.load(fh))
+
+
+def main():
+    for w in CONFIG.warnings:
+        sys.stderr.write("%s\n" % w)
+    load()
+    release["deploy_key"] = deploy_pub()
+    if update_source():
+        release["source"] = {"url": redact(update_source()), "branch": CONFIG.update_branch,
+                             "check_s": CONFIG.update_check_s}
+    refresh_drained()
+    with lock:
+        recover()
+        schedule()
+    threading.Thread(target=housekeeping, daemon=True).start()
+    threading.Thread(target=listen_tailnet, daemon=True).start()
+    srv = ThreadingHTTPServer(("127.0.0.1", CONFIG.port), Handler)
+    srv.daemon_threads = True
+    sys.stderr.write("cider-build-hub listening on 127.0.0.1:%d (%s)\n" % (CONFIG.port, BASE))
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

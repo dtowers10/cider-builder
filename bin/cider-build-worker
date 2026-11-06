@@ -1,0 +1,354 @@
+#!/usr/bin/python3
+# cider-build-worker: build agent for a fleet Mac. LaunchAgent of the user that builds.
+# Every 2 s it sends a heartbeat to the hub (RAM, free RAM, running jobs, tools, Mac details) and receives jobs or
+# cancel orders. Each job: downloads the source, runs build.sh, sends the log and uploads the result.
+# Configuration in ~/cider-build/worker.json: {"label": "mac-mini-2", "hub": "https://…:4710"}.
+# Python 3.9, no dependencies.
+import getpass
+import hashlib
+import json
+import os
+import secrets
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+
+HOME = os.path.expanduser("~")
+SELF = os.path.abspath(__file__)
+# The agent's own folder, ~/cider-build. An agent installed before the rename to Cider Builder lives in
+# ~/mac-build as mac-build-worker, and keeps working from there after an update from the panel.
+DIR = os.path.dirname(SELF)
+STAGE, RUN = os.path.join(DIR, "stage"), os.path.join(DIR, "run")
+OUT, LOGS = os.path.join(HOME, "builds", "out"), os.path.join(HOME, "builds", "logs")
+BUILD = os.path.join(DIR, "build.sh")
+BOOT = secrets.token_hex(6)
+BEAT = 2
+LOG_CHUNK = 256 * 1024
+RESULT_PATIENCE = 1800  # s spent retrying result delivery while the hub does not respond
+UPDATE_RETRY = 60  # s between attempts when updating the agent fails
+
+
+def agent_version(worker, build):
+    """The hub computes the same hash from the files it serves at /bin/: equal means this agent is current."""
+    return hashlib.sha256(worker + b"\0" + build).hexdigest()[:12]
+
+
+def read(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
+VERSION = agent_version(read(SELF), read(BUILD))
+
+with open(os.path.join(DIR, "worker.json")) as _f:
+    CONF = json.load(_f)
+HUB, LABEL = CONF["hub"].rstrip("/"), CONF["label"]
+
+running = {}
+lock = threading.Lock()
+
+
+def say(msg):
+    sys.stderr.write("%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg))
+    sys.stderr.flush()
+
+
+def http(method, path, data=None, timeout=30, length=None):
+    req = urllib.request.Request(HUB + path, data=data, method=method)
+    if length is not None:
+        req.add_header("Content-Length", str(length))
+        req.add_header("Content-Type", "application/octet-stream")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def gone(e):
+    return isinstance(e, urllib.error.HTTPError) and e.code in (404, 409)
+
+
+class Machine:
+    """Mac details sent with every heartbeat. Free RAM and tools are measured only every so often."""
+
+    def __init__(self):
+        self.ram_gb = int(subprocess.check_output(["/usr/sbin/sysctl", "-n", "hw.memsize"])) // (1 << 30)
+        self.free_gb, self.free_at = 0.0, 0
+        self.tools_ready, self.xcode, self.tools_at = False, None, 0
+        self.info = {}
+
+    def refresh(self):
+        t = time.time()
+        if t - self.free_at > 10:
+            try:
+                out = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True, timeout=10).stdout
+                pct = int(out.rsplit(":", 1)[1].strip().rstrip("%"))
+                self.free_gb, self.free_at = round(self.ram_gb * pct / 100.0, 1), t
+            except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+                pass
+        if t - self.tools_at > 300:
+            self.tools_at = t
+            try:
+                self.xcode = subprocess.run(["/usr/bin/xcodebuild", "-version"], capture_output=True, text=True,
+                                            timeout=60).stdout.split("\n")[0].replace("Xcode ", "") or None
+            except (OSError, subprocess.SubprocessError):
+                self.xcode = None
+            need = ["/opt/homebrew/bin/node", "/opt/homebrew/bin/pod", "/opt/homebrew/bin/xcodegen", BUILD,
+                    "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin/java",
+                    os.path.join(HOME, "Library/Android/sdk/platform-tools/adb")]
+            self.tools_ready = bool(self.xcode) and all(os.path.exists(p) for p in need)
+            self.info = host_info()
+
+
+def cmd(*args):
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def host_info():
+    """Name, network and hardware of the Mac, for `cider-build status`. Anything unreadable is left out."""
+    i = {"host": cmd("/usr/sbin/scutil", "--get", "LocalHostName"),
+         "chip": cmd("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"),
+         "model": cmd("/usr/sbin/sysctl", "-n", "hw.model"),
+         "macos": cmd("/usr/bin/sw_vers", "-productVersion")}
+    try:
+        st = json.loads(cmd(shutil.which("tailscale") or "tailscale", "status", "--json"))
+        i["dns"] = st["Self"]["DNSName"].rstrip(".")
+        i["tailnet_ip"] = next((a for a in st["Self"]["TailscaleIPs"] if "." in a), "")
+        i["tailnet"] = (st.get("CurrentTailnet") or {}).get("Name", "")
+    except (ValueError, KeyError, TypeError):
+        pass
+    route = cmd("/sbin/route", "-n", "get", "default")
+    lan_if = next((l.split(":", 1)[1].strip() for l in route.splitlines() if l.strip().startswith("interface:")), "")
+    if lan_if:
+        i["lan_if"], i["lan_ip"] = lan_if, cmd("/usr/sbin/ipconfig", "getifaddr", lan_if)
+    return {k: v for k, v in i.items() if v}
+
+
+class Run:
+    def __init__(self, job):
+        self.job = job
+        self.proc = None
+        self.cancelled = False
+        self.q = "job=%s&attempt=%s&label=%s" % (job["id"], job["attempt"], LABEL)
+
+    def cancel(self, why):
+        if self.cancelled:
+            return
+        self.cancelled = True
+        say("Cancelling %s: %s" % (self.job["id"], why))
+        if self.proc and self.proc.poll() is None:
+            kill_group(self.proc.pid, signal.SIGTERM)
+            threading.Timer(10, kill_group, (self.proc.pid, signal.SIGKILL)).start()
+
+    def run(self):
+        j = self.job
+        st = os.path.join(STAGE, j["id"])
+        log = os.path.join(LOGS, "%s-%s-%s.log" % (j["proj"], j["key"], j["plat"]))
+        out = os.path.join(OUT, "%s-%s-%s-%s-%s.%s" % (j["proj"], j["key"], j["plat"], j["id"], j["attempt"], j["ext"]))
+        pidfile = os.path.join(RUN, j["id"] + ".pid")
+        try:
+            rc = self.build(st, log, pidfile, out)
+            if not self.cancelled:
+                self.report(rc, out)
+        finally:
+            shutil.rmtree(st, ignore_errors=True)
+            for p in (pidfile, out, out + ".tmp"):
+                if os.path.exists(p):
+                    os.unlink(p)
+            with lock:
+                running.pop(j["id"], None)
+
+    def build(self, st, log, pidfile, out):
+        j = self.job
+        try:
+            os.makedirs(os.path.join(st, "src"), exist_ok=True)
+            os.makedirs(LOGS, exist_ok=True)
+            self.download(os.path.join(st, "src.tar.gz"))
+            subprocess.run(["/usr/bin/tar", "-xzf", os.path.join(st, "src.tar.gz"), "-C", os.path.join(st, "src")], check=True)
+            env = dict(os.environ, KIND=j["kind"], PLAT=j["plat"], PROJ=j["proj"], KEY=j["key"], OUT=out,
+                       STAGE=os.path.join(st, "src"), EXCL="", MB_SCHEME="", MB_CONTAINER="", MB_CONFIG="Debug",
+                       MB_TASK="assembleDebug", MB_APK="")
+            env.update(j["cfg"])
+            if self.cancelled:
+                return -15
+            with open(log, "wb") as lf:
+                self.proc = subprocess.Popen(["/bin/bash", BUILD], stdin=subprocess.DEVNULL, stdout=lf, stderr=subprocess.STDOUT,
+                                             env=env, cwd=st, start_new_session=True)
+            with open(pidfile, "w") as f:
+                f.write(str(self.proc.pid))
+            say("Building %s %s %s (pid %d)" % (j["id"], j["proj"], j["plat"], self.proc.pid))
+            sent = 0
+            while self.proc.poll() is None:
+                sent = self.send_log(log, sent)
+                time.sleep(BEAT)
+            self.send_log(log, sent, final=True)
+            return self.proc.returncode
+        except Exception as e:  # any agent failure is reported as a job failure
+            say("Error in %s: %r" % (j["id"], e))
+            try:
+                http("POST", "/w/log?%s&offset=%d" % (self.q, j["log_offset"] + 10 ** 12),
+                     ("cider-build: agent error on %s: %s\n" % (LABEL, e)).encode())
+            except Exception:
+                pass
+            return 1
+
+    def download(self, dest):
+        last = None
+        for _ in range(30):
+            try:
+                req = urllib.request.Request("%s/source?job=%s" % (HUB, self.job["id"]))
+                with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+                    shutil.copyfileobj(r, f, 1 << 20)
+                return
+            except Exception as e:
+                if gone(e):
+                    raise
+                last = e
+                time.sleep(2)
+        raise last
+
+    def send_log(self, log, sent, final=False):
+        while True:
+            with open(log, "rb") as f:
+                f.seek(sent)
+                chunk = f.read(LOG_CHUNK)
+            if not chunk:
+                return sent
+            try:
+                http("POST", "/w/log?%s&offset=%d" % (self.q, self.job["log_offset"] + sent), chunk)
+                sent += len(chunk)
+            except Exception as e:
+                if gone(e):
+                    self.cancel("the hub no longer assigns this job to me")
+                return sent
+            if not final and len(chunk) < LOG_CHUNK:
+                return sent
+
+    def report(self, rc, out):
+        ok = rc == 0 and os.path.isfile(out) and os.path.getsize(out) > 0
+        if rc == 0 and not ok:
+            rc = 1
+        deadline = time.time() + RESULT_PATIENCE
+        while True:
+            try:
+                if ok:
+                    with open(out, "rb") as f:
+                        http("POST", "/w/result?%s&rc=0" % self.q, f, timeout=600, length=os.path.getsize(out))
+                else:
+                    http("POST", "/w/result?%s&rc=%d" % (self.q, rc), b"")
+                say("Delivered %s rc=%d" % (self.job["id"], rc))
+                return
+            except Exception as e:
+                if gone(e) or time.time() > deadline:
+                    say("Giving up delivering %s: %r" % (self.job["id"], e))
+                    return
+                time.sleep(3)
+
+
+def kill_group(pid, sig):
+    try:
+        os.killpg(pid, sig)
+    except OSError:
+        pass
+
+
+def reap():
+    """Kills builds left by a previous agent and deletes their files. The hub reassigns them."""
+    for d in (STAGE, RUN, OUT, LOGS):
+        os.makedirs(d, exist_ok=True)
+    for f in os.listdir(RUN):
+        try:
+            pid = int(open(os.path.join(RUN, f)).read().strip())
+            cmd = subprocess.run(["/bin/ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True).stdout
+            if BUILD in cmd:
+                say("Killing orphan build process group %d" % pid)
+                kill_group(pid, signal.SIGKILL)
+        except (OSError, ValueError):
+            pass
+        os.unlink(os.path.join(RUN, f))
+    for f in os.listdir(STAGE):
+        shutil.rmtree(os.path.join(STAGE, f), ignore_errors=True)
+    for f in os.listdir(OUT):
+        os.unlink(os.path.join(OUT, f))
+
+
+def update_agent(version):
+    """Replaces cider-build-worker and build.sh with the hub's, only if they are the version it asked for and parse."""
+    new = {f: os.path.join(DIR, ".%s.new" % f) for f in ("cider-build-worker", "build.sh")}
+    try:
+        data = {f: http("GET", "/bin/" + f, timeout=60) for f in new}
+        got = agent_version(data["cider-build-worker"], data["build.sh"])
+        if got != version:
+            raise RuntimeError("the hub serves agent %s, not the %s it asked for" % (got, version))
+        compile(data["cider-build-worker"], "cider-build-worker", "exec")
+        for f, path in new.items():
+            with open(path, "wb") as fh:
+                fh.write(data[f])
+            os.chmod(path, 0o755)
+        r = subprocess.run(["/bin/bash", "-n", new["build.sh"]], capture_output=True, text=True, timeout=30)
+        if r.returncode:
+            raise RuntimeError("build.sh is not valid bash: %s" % r.stderr.strip()[-200:])
+        os.replace(new["build.sh"], BUILD)
+        os.replace(new["cider-build-worker"], SELF)
+    finally:
+        for path in new.values():
+            if os.path.exists(path):
+                os.unlink(path)
+
+
+def main():
+    reap()
+    if sys.argv[1:] == ["reap"]:
+        return
+    m = Machine()
+    user = getpass.getuser()
+    say("cider-build-worker %s (%s, boot %s) against %s" % (VERSION, LABEL, BOOT, HUB))
+    update_error, update_at = None, 0
+    while True:
+        m.refresh()
+        with lock:
+            ids = list(running)
+        body = {"label": LABEL, "boot": BOOT, "user": user, "ram_gb": m.ram_gb, "free_gb": m.free_gb, "running": ids,
+                "tools_ready": m.tools_ready, "xcode": m.xcode, "version": VERSION, "info": m.info,
+                "self_update": True, "update_error": update_error}
+        try:
+            resp = json.loads(http("POST", "/w/heartbeat", json.dumps(body).encode(), timeout=15))
+        except Exception as e:
+            say("No response from the hub: %r" % e)
+            time.sleep(BEAT)
+            continue
+        with lock:
+            for jid in resp.get("cancel", []):
+                if jid in running:
+                    running[jid].cancel("the hub asked for it")
+            for job in resp.get("jobs", []):
+                if job["id"] not in running:
+                    r = running[job["id"]] = Run(job)
+                    threading.Thread(target=r.run, daemon=True).start()
+            idle = not running
+        want = resp.get("update")
+        if not want:
+            update_error = None
+        elif idle and time.time() >= update_at:
+            try:
+                update_agent(want["version"])
+            except Exception as e:  # reported to the hub and retried; the old agent keeps running
+                update_error, update_at = str(e)[:300] or repr(e), time.time() + UPDATE_RETRY
+                say("Could not update the agent: %s" % update_error)
+            else:
+                say("Agent updated to %s: exiting so launchd starts it" % want["version"])
+                os._exit(0)
+        time.sleep(BEAT)
+
+
+if __name__ == "__main__":
+    main()
