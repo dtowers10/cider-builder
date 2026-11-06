@@ -85,7 +85,7 @@ Do not weaken a property or the model to make it pass. If the code breaks a prop
 | `bin/cider-build-hub`: `detach()` (last client of a job that is not `warm`, or `all=1` from the panel, which removes them all). A client leaving a `warm` job cancels nothing, which in the model is a stutter step | `Detach` |
 | `bin/cider-build-hub`: `recover()` | `SourceTimeout`, `LostTimeout`. `SourceTimeout` fires whenever the job lacks source; the code also waits for any open upload (`Handler.carrying_source`), which the model does not need |
 | `bin/cider-build-hub`: `lose()` | `Lost` |
-| `bin/cider-build-hub`: `schedule()`, `schedulable()`, `used()` | `Schedule`, `Used`, `fresh`, `Stale`. The filter on `w["running"]` from the last heartbeat is `j \notin Ids(w)` in `Schedule` (the comment on `Schedule` explains why they are equivalent) |
+| `bin/cider-build-hub`: `schedule()`, `schedulable()`, `used()` | `Schedule`, `Used`, `fresh`, `Stale`. The filter on `w["running"]` from the last heartbeat is `j \notin Ids(w)` in `Schedule` (the comment on `Schedule` explains why they are equivalent). `schedulable()` also skips a Mac that `refusal()` names, one in `drained`, and one whose agent the panel asked to update (`w["update"]`). Those filters only remove Macs, and `Schedule` allows any Mac |
 | `bin/cider-build-hub`: `heartbeat()` and `running` in `workers/<mac>.json` | `Beat`, `listed` |
 | `bin/cider-build-hub`: `worker_job()` | `Owns` |
 | `bin/cider-build-hub`: `Handler.result()`, `move()`, `TRANSITIONS` | `Report` (the second call to `worker_job()`, under the lock, decides) |
@@ -97,6 +97,7 @@ Do not weaken a property or the model to make it pass. If the code breaks a prop
 | `bin/cider-build-worker`: the `out` path of `Run.run()`, which `build.sh` receives in `OUT` | `OutPath` |
 | `bin/cider-build-worker`: `finally` of `Run.run()` | `Cleanup` and the `outFile` cleanup in `Report` and `GiveUp` |
 | `bin/cider-build-worker`: `reap()` and the new `BOOT` | `Restart` |
+| `bin/cider-build-worker`: `update_agent()` and the `os._exit(0)` after it in `main()`, only when no Run is active | `Restart`, which the model allows at any moment |
 | `bin/build.sh`: lock `~/builds/.lock-$PROJ-$PLAT` and `$OUT` | `TakeLock`, `lockOwner`, `outFile` |
 
 **Outside the model:**
@@ -111,6 +112,8 @@ Do not weaken a property or the model to make it pass. If the code breaks a prop
 - The gap between `Popen` and writing the pidfile in `Run.build()`.
 - The Mac details sent in the heartbeat (`info`, from `host_info()` in the agent and `clean_info()` in the hub). They are only stored and shown in `status()`, with no effect on the queue or on assignment.
 - Listening on the tailnet IP (`listen_tailnet()`) and `/join`. They use the same `Handler` as 127.0.0.1.
+- Agent updates from the panel: `request_update()`, `agent_version()`, and the `update`, `self_update` and `update_error` fields in `heartbeat()`. They change no job and no `running` list. The agent's exit after an update is a `Restart`.
+- Hub updates (`update_release()`): the hub exits with the lock held and no transfer in flight, and launchd starts it again. That is a hub restart, the same as `load()`.
 
 **Bounds:**
 
@@ -124,7 +127,7 @@ With 1 slot, `used()` keeps the same Mac from getting a job again while the agen
 
 `cfg/holds.cfg` has symmetry between keys. A pass with 2 Macs does not finish in useful time: it went past 45 million states without finishing. An OK covers these bounds, not the whole system.
 
-**Sync commit:** `f78d53ff3f1a1eb9d879c5de2b1a7c2421e3a6b2`. The last commit at which the model was confirmed to describe the functions in the table.
+**Sync commit:** `5acd86fadd7f5ed87ee3cf4b7f14e260e52f53f4`. The last commit at which the model was confirmed to describe the functions in the table.
 
 ## Known findings (with the code at the sync commit)
 
