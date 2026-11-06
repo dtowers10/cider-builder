@@ -7,8 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-TLA_VERSION=v1.8.0
-TLA_SHA256=e20447644bfabd29d6bd0fc2c0eb1473fb301c1a0e4dfe1961938ce5a191edbf
+TLA_VERSION=v1.7.4
+TLA_SHA256=936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 JAR=tools/tla2tools.jar
 FINDINGS=""
 

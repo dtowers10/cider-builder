@@ -27,7 +27,7 @@ verification/verify.sh trace <Invariant>  # shortest counterexample for that pro
 verification/run-order.py [<rev>]         # the NoFalseFailure ordering locally, with the real hub, agent and build.sh
 ```
 
-It needs Java 11 or later and downloads TLC v1.8.0, pinned by sha256 in the script.
+It needs Java 11 or later and downloads TLC v1.7.4, the latest stable release, pinned by sha256 in the script.
 
 How to read the output:
 
