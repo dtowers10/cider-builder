@@ -5,8 +5,9 @@
                                     working tree and untracked files included; always exits 0
     verification/lanes.py --check   drift between the code, CI and the verification skills; exits 1 on any
 
-The protocol lane is decided against the model's sync commit, not BASE: it names every function in the
-coverage table of .claude/skills/verify-job-protocol/SKILL.md that changed since the model was last confirmed.
+Any change to the hub, the agent or build.sh raises the protocol lane, because new code can reach the state a
+property guards without touching a covered function. The lane also names every function in the coverage table
+of .claude/skills/verify-job-protocol/SKILL.md that changed since the model's sync commit, whatever BASE is.
 """
 import ast
 import re
@@ -32,8 +33,8 @@ LANES = {
 
 PATH_LANES = [
     ("bin/cider-build-panel.html", {"panel"}),
-    ("bin/cider-build-hub", {"tests"}),
-    ("bin/cider-build-worker", {"tests"}),
+    ("bin/cider-build-hub", {"tests", "protocol"}),
+    ("bin/cider-build-worker", {"tests", "protocol"}),
     ("bin/cider-build", {"tests"}),
     ("bin/build.sh", {"tests", "protocol"}),
     ("install.sh", {"tests"}),
