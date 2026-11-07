@@ -182,8 +182,10 @@ def check():
 def main(argv):
     if argv[:1] == ["--check"]:
         return check()
-    base = argv[0] if argv else git("merge-base", "HEAD", "origin/main" if git("branch", "--list", "main") == ""
-                                    else "main").strip()
+    if not argv:
+        main_ref = "origin/main" if git("branch", "-r", "--list", "origin/main").strip() else "main"
+        argv = [git("merge-base", "HEAD", main_ref).strip()]
+    base = argv[0]
     lanes(base)
     return 0
 
