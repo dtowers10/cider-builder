@@ -69,7 +69,7 @@ npx skills add dtowers10/cider-builder --skill cider-build -g
 
 Run `install.sh` again at any time to update. It leaves in place anything that is already installed. To add a Mac from a client over Tailscale SSH, run `cider-build add <mac>`. To remove a Mac from the fleet, run `cider-build remove <mac>`.
 
-The panel is at `https://buildhub.example.ts.net:4710/`. It shows the Macs, the queue, live logs, history, and the cache. It also updates the hub from git and the agents from the hub.
+The panel is at `https://buildhub.example.ts.net:4710/`. Its Board shows one cell per slot, with the build that runs there and its estimated time left, and the queue with where and when each build should start. It also has live logs, history and the cache. Its Fleet view lists the Macs, shows the commands to add one, and updates the hub from git and the agents from the hub.
 
 ## Project settings
 

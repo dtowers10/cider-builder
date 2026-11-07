@@ -4,19 +4,19 @@
 
 The hub serves a web panel at `https://<hub>:4710/` and at `http://<hub's tailnet IP>:4711/`. It opens from any browser on the tailnet.
 
-It shows the Macs with their state, slots, RAM, Xcode and last heartbeat. It also shows the builds in progress, the queue, the history with filters, the cache with its downloads, affinity and the commands to join a Mac. Each job has its live log.
+Its Board has one row per Mac and one cell per slot. A cell shows the build that runs there and its estimated time left, which is the median duration of the earlier builds of the same project and platform. A Mac that takes no builds shows why. Next to the rows, the queue says when and on which Mac each build should start, as an estimate from the same durations, and a list shows the jobs that finished in the last 24 h. History lists every finished job, with filters. Fleet lists the Macs with their state, slots, RAM and Xcode, the updates, and the commands to join a Mac. Cache lists the artifacts, with their downloads, and the affinity. Each job has its live log.
 
-From the panel you can cancel a job, change a Mac's slots, disable or enable it, and update the hub and the agents (see [Updates](updates.md)). In the cache view you can invalidate one artifact or delete a project's whole cache, so the next cider-build for it rebuilds on a Mac. Every action that changes something asks for confirmation before calling the hub.
+From the panel you can cancel a job, change a Mac's slots, disable or enable it, and update the hub and the agents (see [Updates](updates.md)). In the Cache view you can invalidate one artifact or delete a project's whole cache, so the next cider-build for it rebuilds on a Mac. Every action that changes something asks for confirmation before calling the hub.
 
 The panel only reads the hub through `/api/state`, `/api/history`, `/api/cache`, `/api/job` and `/poll`, all JSON except `/poll`. Cancelling uses `POST /detach?job=<id>&all=1`, which cancels the job for every client waiting on it. Updates use `POST /hub/check`, `POST /hub/update` and `POST /workers/<mac>/update`. Invalidating uses `DELETE /cache/<project>/<file>` and deleting a project's cache `DELETE /cache/<project>`.
 
 ## Updates
 
-The panel's Fleet > Updates view updates the hub from a git repository and each Mac's agent from the hub.
+The panel's Fleet view, in its Updates section (`#/updates`), updates the hub from a git repository and each Mac's agent from the hub.
 
 **The hub.** The hub updates itself from the repository it was installed from. Its update source is `update_url` and `update_branch` in its settings (see [Configuration](configuration.md)). The first `install.sh hub` from a clone records the clone's remote and the branch it follows there, and `cider-build hub-install` passes the remote and branch of the client's clone. Any git remote works: ssh, https or a local path, this project's repository or your fork.
 
-Hub updates are off when `update_url` is `off`, and while it is unset, which happens when the hub was installed from a copy that is not a git clone. `off` is a decision that stays: reinstalls and hub updates never replace it. Unset is not, and the next install from a clone fills it in. With updates off, the hub never runs git, the Updates view says so and shows the command that turns them on, and `POST /hub/check` and `POST /hub/update` answer 409.
+Hub updates are off when `update_url` is `off`, and while it is unset, which happens when the hub was installed from a copy that is not a git clone. `off` is a decision that stays: reinstalls and hub updates never replace it. Unset is not, and the next install from a clone fills it in. With updates off, the hub never runs git, Fleet's Updates section says so and shows the command that turns them on, and `POST /hub/check` and `POST /hub/update` answer 409.
 
 With a source, the hub keeps a bare copy of the branch in `~/cider-build/repo.git` and fetches it every 30 minutes (`update_check_s`) and on "Check for updates". It compares the files it runs (`install.sh` and `bin/`, fonts included) with the tip, and shows the branch's changelog: its last 30 changes on the branch's main line, newest first, each marked installed or pending. A GitHub merge commit or a squash merge shows as its PR's title and number. "Update hub" does this:
 - Writes the new files to `~/cider-build/bin/.staged`.
