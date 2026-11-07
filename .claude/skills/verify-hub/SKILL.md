@@ -1,6 +1,6 @@
 ---
 name: verify-hub
-description: Drives the cider-build hub's web panel (bin/cider-build-panel.html served by bin/cider-build-hub) and the `cider-build status` CLI against a disposable, seeded hub on 127.0.0.1, and captures evidence. Use it to prove any change to the panel or to what the hub shows (views, routes, drawer, actions, History filters, cache, Add a Mac, Updates), and to read the real hub safely through a read-only proxy. It does not check the job protocol; that is verify-job-protocol.
+description: Drives the cider-build hub's web panel (bin/cider-build-panel.html served by bin/cider-build-hub) and the `cider-build status` CLI against a disposable, seeded hub on 127.0.0.1, and captures evidence. Use it to prove any change to the panel or to what the hub shows (the Board with its estimates and queue forecast, routes, drawer, actions, History filters, cache, Fleet with Add a Mac and Updates), and to read the real hub safely through a read-only proxy. It does not check the job protocol; that is verify-job-protocol.
 metadata:
   internal: true
 ---
@@ -27,7 +27,7 @@ What `up` starts:
 
 Seeded state, which `features/README.md` relies on:
 
-| Mac | Panel state | Slots | Agent (Updates view) |
+| Mac | Panel state | Slots | Agent (Fleet) |
 |---|---|---|---|
 | mac-alpha | online | 2/2, building `demo ios` and `shop android` | outdated, can update itself |
 | mac-beta | online | 1/1, building `ledger ios` | outdated, can update itself |
@@ -37,7 +37,7 @@ Seeded state, which `features/README.md` relies on:
 
 Also seeded: the queue (`scanner android` and `demo android` with source, `shop ios` with no source); 42 finished jobs spread over about 4 days (done, failed with rc 65, cancelled), 2 of them failed in the last 24 h; 4 cache projects with 2 artifacts each; affinity for each project.
 
-For Updates: the hub's `hub.json` names a local repository at `/tmp/verify-hub/run-<id>/repo` as `update_url` (with `--no-updates` it is `off`, and hub updates are off). Its first commit is what `home/bin` holds (this checkout's release files, named in `bin/.commit`), and `main` is one commit ahead with the subject `Panel: show each build's estimated time left`, so the hub shows an update available, 1 commit behind. All Macs report agent `2026.10.3`, older than what the hub hands out. A fake Mac asked to update reports the requested version on its next heartbeat; a real agent first waits for its builds to end.
+For Updates: the hub's `hub.json` names a local repository at `/tmp/verify-hub/run-<id>/repo` as `update_url` (with `--no-updates` it is `off`, and hub updates are off). Its first commit is what `home/bin` holds (this checkout's release files, named in `bin/.commit`), and `main` is one commit ahead with the subject `Panel: show each build's estimated time left`, so the hub shows an update available, 1 change not installed yet. All Macs report agent `2026.10.3`, older than what the hub hands out. A fake Mac asked to update reports the requested version on its next heartbeat; a real agent first waits for its builds to end.
 
 A real hub, read-only:
 
@@ -87,9 +87,11 @@ The `t` object passed to a journey has these helpers:
 | `t.shot(name)`, `t.aria(name)` | A screenshot, and an ARIA tree as text |
 
 Stable handles in the panel:
-- **Sidebar.** Links are `#nav a[href="#/<view>"]`, with `<view>` in `overview, macs, add, updates, builds, history, cache`. The current one has `aria-current="page"`.
+- **Top bar.** Links are `#nav a[href="#/<view>"]`, with `<view>` in `board, history, fleet, cache`. The current one has `aria-current="page"`. The old names (`#/overview`, `#/builds`, `#/macs`, `#/add`, `#/updates`, and the anchors `#macs`, `#trabajos`, `#historial`, `#cache`, `#unir`) are aliases; `#/add`, `#unir` and `#/updates` land on a heading inside Fleet. Alert chips are `#summary a`.
 - **Views.** Each view is a `main > section#view-<view>`, and only one is visible. Its heading is the section's `h2`.
-- **Drawer.** `#drawer`, with `#drawer-title` and `#drawer-close`.
+- **Board.** `#board-lanes .lane[data-id="<mac>"]` with `.cell.job`, `.cell.free`, `.cell.ghost` and `.cell.off`; `#board-queue li[data-id="<job>"]`; `#board-recent li[data-id="<job>"]`.
+- **Fleet.** `#fleet-banner`, `#maclist .card[data-id="<mac>"]` with `a[href="#mac/<mac>"]`, `#up-hub`, `#join`.
+- **Drawer.** `#drawer`, with `#drawer-title`, `#drawer-close` and `#drawer-body`. A job drawer has `.job-head`, `#job-more`, `.log-tools` and `pre.log`.
 - **Confirmation dialog.** `#confirm`, with the buttons `#confirm-yes` and `#confirm-no` ("Keep it").
 - **Toasts.** `#toasts .toast`.
 
@@ -130,11 +132,11 @@ python3 $S/hubctl.py down          # optional: --run <id>; `list` shows runs sti
 
 - **Chrome hangs on every network request** (blank page, `Page.navigate: no answer from Chrome in 15 s`). In a desktop session whose keyring is locked, Chrome waits for the cookie key over D-Bus before opening any connection. `drive.mjs` passes `--password-store=basic` for that reason. If you launch Chrome yourself, pass it too, or unset `DBUS_SESSION_BUS_ADDRESS`.
 - **Hash changes move focus.** In-app navigation moves focus to the view's heading. The next Tab continues from there, not from the sidebar. Use `t.nav` (a cold load) before checking Tab order from the top of the page.
-- **`#job/<id>` and `#mac/<label>` open over the current view.** On a cold load the current view is Overview. In-app, it is whatever is shown. Either way the panel rewrites the hash to `#/<view>/<kind>/<id>`.
+- **`#job/<id>` and `#mac/<label>` open over the current view.** On a cold load the current view is Board. In-app, it is whatever is shown. Either way the panel rewrites the hash to `#/<view>/<kind>/<id>`.
 - **No "out of the pool" Mac in the seed.** The hub learns that state from its `drain_command`, and the seed has none. Check that counter against a real hub that has one with `up --real`, read-only.
 - **The queued job with no source is replaced, not kept.** The hub cancels it after 120 s (`SOURCE_TTL`), and the fleet submits a new one with a new id. Don't hard-code its id.
 - **Never click "Update hub" on a seeded run.** It would replace `home/bin` and exit the hub, and nothing restarts it. `verification/hub-update.py` proves the hub update, with a restart that plays launchd.
-- **Actions change the seed.** Cancelling a building job frees a slot, the hub assigns a queued job, and the fleet starts building it. Run mutation journeys last, or start a fresh run.
+- **Actions change the seed.** Cancelling a building job frees a slot, the hub assigns a queued job, and the fleet starts building it. Raising a Mac's slots does the same. Run mutation journeys last, or start a fresh run.
 - **Never use `pkill -f <pattern>` in this environment.** The pattern also matches the shell that runs it. Use `hubctl.py down`.
 
 ## Helpers
@@ -142,6 +144,10 @@ python3 $S/hubctl.py down          # optional: --run <id>; `list` shows runs sti
 - `scripts/hubctl.py`: `up [--real [URL] | --no-updates] [--run ID]`, `doctor`, `down`, `list`. Python 3.9 or later, standard library only.
 - `scripts/drive.mjs`: `node drive.mjs [--run ID] [--keep-going] <journey.mjs>`
 - `journeys/navigation.mjs`: the proven journey for `features/navigation.md`.
+- `journeys/history.mjs`: the proven journey for `features/history.md`.
+- `journeys/board.mjs`: the proven journey for `features/board.md`. Its last step cancels a queued job.
+- `journeys/fleet.mjs`: the proven journey for `features/fleet.md`. It changes mac-beta and restores it.
+- `journeys/cache-delete.mjs` and `journeys/cache-eviction.mjs`: `features/cache-and-add.md`.
 - `journeys/updates.mjs`: the proven journey for `features/updates.md`. It updates agents, so run it after the read-only journeys.
 - `journeys/updates-off.mjs`: the same feature on a run started with `up --no-updates`.
 - `features/README.md`: the feature map. Read it before driving.
