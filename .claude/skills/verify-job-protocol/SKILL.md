@@ -113,6 +113,7 @@ Do not weaken a property or the model to make it pass. If the code breaks a prop
 - The Mac details sent in the heartbeat (`info`, from `host_info()` in the agent and `clean_info()` in the hub). They are only stored and shown in `status()`, with no effect on the queue or on assignment.
 - Listening on the tailnet IP (`listen_tailnet()`) and `/join`. They use the same `Handler` as 127.0.0.1.
 - Agent updates from the panel: `request_update()`, `agent_version()`, and the `update`, `self_update` and `update_error` fields in `heartbeat()`. They change no job and no `running` list. The agent's exit after an update is a `Restart`.
+- Deleting from the cache: `prune_cache()` and `delete_cache()` (`DELETE /cache/<project>[/<file>]` from the panel). Both remove files under the lock and change no job, no `running` list and no assignment. `written` records only what enters `cache/`, so a deletion cannot break `CacheFromCurrentAttempt`. Neither touches the `.tmp-*` file that `Handler.result()` writes outside the lock, so a delivery in flight still lands. A client that saw its job `done` and has not yet downloaded the artifact gets a 404 if it is deleted first. The model does not cover the client's download.
 - Hub updates (`update_release()`): the hub exits with the lock held and no transfer in flight, and launchd starts it again. That is a hub restart, the same as `load()`.
 
 **Bounds:**
@@ -127,7 +128,7 @@ With 1 slot, `used()` keeps the same Mac from getting a job again while the agen
 
 `cfg/holds.cfg` has symmetry between keys. A pass with 2 Macs does not finish in useful time: it went past 45 million states without finishing. An OK covers these bounds, not the whole system.
 
-**Sync commit:** `5acd86fadd7f5ed87ee3cf4b7f14e260e52f53f4`. The last commit at which the model was confirmed to describe the functions in the table.
+**Sync commit:** `86fe514f47178435e6c23c78c3911407e4905044`. The last commit at which the model was confirmed to describe the functions in the table.
 
 ## Known findings (with the code at the sync commit)
 
