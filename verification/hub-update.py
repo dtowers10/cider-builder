@@ -154,6 +154,12 @@ base = "http://127.0.0.1:%d" % port
 env = dict(os.environ, CIDER_BUILD_HOME=home, CIDER_BUILD_PORT=str(port), CIDER_BUILD_TAILNET_PORT=str(free_port()),
            HOME=user_home, PATH=fakebin + ":/usr/bin:/bin")
 hub = None
+check(HUB.change("s1\x001700000000\x00Merge pull request #7 from me/fix\x00Pin TLC\n\nmore\n", None)
+      == {"sha": "s1", "subject": "Pin TLC", "time": 1700000000, "pr": 7, "installed": None}
+      and HUB.change("s2\x001\x00Add favicons (#12)\x00", {"s2"})["pr"] == 12
+      and HUB.change("s2\x001\x00Add favicons (#12)\x00", {"s2"})["subject"] == "Add favicons"
+      and HUB.change("s3\x001\x00Plain commit\x00", {"s2"}) == {"sha": "s3", "subject": "Plain commit", "time": 1, "pr": None, "installed": True},
+      "the changelog names a merged or squashed PR by its title and number, and a plain commit by its subject")
 try:
     hub = start_hub()
     r = checked()
@@ -168,8 +174,9 @@ try:
     check(call("POST", "/hub/check") == (200, "checking\n"), "POST /hub/check starts a check")
     r = checked(t)
     check(r["available"] and r["behind"] == 1 and r["remote"]["commit"] == B and r["installed"] == A
-          and [c["subject"] for c in r["commits"]] == ["B: change the worker and the panel"],
-          "after commit B: update available, 1 behind, with B's subject (%s)" % json.dumps(r["commits"]))
+          and [(c["sha"], c["installed"]) for c in r["changelog"]] == [(B, False), (A, True)]
+          and r["changelog"][0]["subject"] == "B: change the worker and the panel",
+          "after commit B: update available, 1 behind; the changelog lists B pending and A installed (%s)" % json.dumps(r["changelog"]))
 
     check(call("POST", "/hub/update") == (200, "updating\n"), "POST /hub/update starts the update")
     check(call("POST", "/hub/check")[0] == 409, "a second job while updating gets 409")
@@ -187,7 +194,9 @@ try:
 
     hub = start_hub()  # what launchd does
     r = checked()
-    check(not r["available"] and r["installed"] == B and r["behind"] == 0, "restarted: up to date, installed B")
+    check(not r["available"] and r["installed"] == B and r["behind"] == 0
+          and [(c["sha"], c["installed"]) for c in r["changelog"]] == [(B, True), (A, True)],
+          "restarted: up to date, installed B; the changelog still lists B and A, both installed")
     check(b"<!-- B -->" in urllib.request.urlopen(base + "/").read(), "the restarted hub serves B's panel")
 
     C = commit("C: a hub that does not compile", {"bin/cider-build-hub": at(B, "bin/cider-build-hub") + b"\ndef broken(:\n"})

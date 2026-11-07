@@ -1,11 +1,12 @@
 # Updates: the hub from its git repository, the agents from the hub
 
-Fleet > Updates compares what the hub runs with the tip of the branch of its update source (`update_url` and `update_branch` in the hub's `hub.json`) and lists the commits it is behind. "Check for updates" asks the hub to fetch again, and "Update hub" installs the tip after the hub has compiled it and test-started it. A hub with no `update_url` has hub updates off: the section says so and shows the command that turns them on, with no hub buttons. Below, in both cases, one row per Mac shows its agent version against the one the hub hands out. "Update agent" asks that Mac to take no new builds, finish the ones it has, download the new agent and restart. The Mac drawer has the same button, and agents too old to update themselves say to run `cider-build add <mac>` once.
+Fleet > Updates compares what the hub runs with the tip of the branch of its update source (`update_url` and `update_branch` in the hub's `hub.json`) and shows the branch's changelog: its last 30 changes, newest first, each marked installed or pending. A GitHub merge or squash shows as its PR's title and number. "Check for updates" asks the hub to fetch again, and "Update hub" installs the tip after the hub has compiled it and test-started it. A hub with no `update_url` has hub updates off: the section says so and shows the command that turns them on, with no hub buttons. Below, in both cases, one row per Mac shows its agent version against the one the hub hands out. "Update agent" asks that Mac to take no new builds, finish the ones it has, download the new agent and restart. The Mac drawer has the same button, and agents too old to update themselves say to run `cider-build add <mac>` once.
 
 ## Sub-features
 
 - `updates-nav` shows, on the Updates entry, a dot when the hub has an update and the number of outdated agents.
-- `updates-hub` shows the update source and branch, the installed commit, the latest commit on the branch with its subject and date, the last check, the state and the commits behind. It names no git host.
+- `updates-hub` shows the update source and branch, the installed commit, the latest commit on the branch with its subject and date, the last check, the state, and the changelog with the changes not installed yet. It names no git host.
+- `updates-changelog` lists every change on the branch, not only the ones the hub lacks: the new one marked pending and the installed one marked installed.
 - `updates-check` asks for a check with "Check for updates", which answers with a toast, and the check time moves forward in `/api/state`.
 - `updates-error` shows the hub's error from the last check or update. When it looks like an ssh or auth failure, it adds the hub's public key (`update_ssh_key` + `.pub`) with a Copy button, or, with no key, how to get one.
 - `updates-hub-update` enables "Update hub" only when an update is available and the hub is idle, and confirms before calling `POST /hub/update`. The seeded run does not drive it (see Gotchas).
@@ -29,7 +30,7 @@ Preconditions:
 - For `updates-off`, a separate run started with `hubctl.py up --no-updates`, whose `hub.json` has no `update_url`.
 
 - **Nav.** Run `t.nav("/")`. The text of `#nav a[href="#/updates"] .nav-count` includes `hub update available` and `5`.
-- **Hub.** Run `t.click('#nav a[href="#/updates"]')`. `#up-hub` shows `Source` with the run's repository path and `· main`, both commits (12 characters each), `Latest on main` with the subject `Panel: show each build's estimated time left`, `update available` and `1 commit behind`. Both `#up-hub` buttons are enabled.
+- **Hub.** Run `t.click('#nav a[href="#/updates"]')`. `#up-hub` shows `Source` with the run's repository path and `· main`, both commits (12 characters each), `Latest on main` with the subject `Panel: show each build's estimated time left`, `update available` and `1 change not installed yet`. The changelog table has two rows: the new commit, pending, and the installed one, installed. Both `#up-hub` buttons are enabled.
 - **Check.** Run `t.click("#up-hub button", "Check for updates")`. A toast reads `Check for updates: checking`, and `/api/state` soon has a larger `release.checked` with `phase` back to `idle`.
 - **Refuse.** Find mac-beta's row index in `#up-agents tbody tr`, then run `t.click('#up-agents tbody tr:nth-child(<i>) button', "Update agent")` and `t.click("#confirm-no")`. `/api/state` still has mac-beta with `update` false.
 - **Update one.** Repeat with `t.click("#confirm-yes")`. A toast reads `Update mac-beta: updating mac-beta`. The row shows the `updating` badge, then `current`. In `/api/state`, mac-beta's `version` equals `agent`, `update` is false and `state` is `online`.

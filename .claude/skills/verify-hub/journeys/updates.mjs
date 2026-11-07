@@ -25,9 +25,13 @@ export default async (t) => {
   await t.waitFor(`document.getElementById("up-hub").textContent.includes("update available")`, 8000);
   const hub = await t.ev(`document.getElementById("up-hub").textContent`);
   const rel = (await state()).release;
-  t.check("updates-hub: shows the update with the latest commit on the branch, its subject and the commit behind",
+  t.check("updates-hub: shows the update with the latest commit on the branch, its subject and the change not installed",
     hub.includes(rel.remote.commit.slice(0, 12)) && hub.includes(rel.installed.slice(0, 12)) && hub.includes(SUBJECT)
-    && hub.includes("Latest on main") && hub.includes("1 commit behind"), hub.slice(0, 300));
+    && hub.includes("Latest on main") && hub.includes("1 change not installed yet"), hub.slice(0, 300));
+  const log = await t.ev(`[...document.querySelectorAll("#up-hub tbody tr")].map((r) => r.textContent.replace(/\\s+/g, " ").trim())`);
+  t.check("updates-changelog: lists every change on main, the new one pending and the installed one too",
+    log.length === 2 && log[0].startsWith(rel.remote.commit.slice(0, 12)) && log[0].includes(SUBJECT) && log[0].endsWith("pending")
+    && log[1].startsWith(rel.installed.slice(0, 12)) && log[1].endsWith("installed"), JSON.stringify(log));
   t.check("updates-hub: names the update source from hub.json and its branch, and no git host",
     hub.includes("Source" + rel.source.url + " · main") && !/github/i.test(hub), hub.slice(0, 300));
   t.check("updates-hub: Update hub is enabled and Check for updates too",
