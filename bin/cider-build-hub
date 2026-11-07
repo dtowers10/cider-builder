@@ -410,6 +410,30 @@ def prune_cache():
     return removed
 
 
+def delete_cache(proj, fname=None):
+    """Deletes one artifact of proj, or all of them. A download in progress keeps streaming from its open fd."""
+    d = os.path.join(CACHE, proj)
+    with lock:
+        if fname is not None:
+            if not ARTIFACT.match(fname) or not os.path.isfile(os.path.join(d, fname)):
+                raise HttpError(404, "not in the cache: %s/%s" % (proj, fname))
+            targets = [fname]
+        elif not os.path.isdir(d):
+            raise HttpError(404, "no cache for project %s" % proj)
+        else:
+            targets = [f.name for f in os.scandir(d)
+                       if not f.name.startswith(".") and ARTIFACT.match(f.name) and f.is_file()]
+        # The project dir stays: Handler.result makes it outside the lock and then writes its .tmp there.
+        for f in targets:
+            os.unlink(os.path.join(d, f))
+    if targets:
+        sys.stderr.write("%s cache: deleted %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"),
+                                                       " ".join("%s/%s" % (proj, f) for f in targets)))
+    if fname is not None:
+        return "deleted %s/%s\n" % (proj, fname)
+    return "deleted %d artifact%s of %s\n" % (len(targets), "" if len(targets) == 1 else "s", proj)
+
+
 def used(label):
     # A cancelled job keeps its slot while the agent may still have its process alive: what it named
     # in its last heartbeat and what that response handed it, which it has not been able to name yet.
@@ -1246,6 +1270,8 @@ def api_cache():
         files = sorted(({"name": f.name, "size": f.stat().st_size, "mtime": f.stat().st_mtime}
                         for f in os.scandir(d.path) if not f.name.startswith(".") and f.is_file()),
                        key=lambda f: -f["mtime"])
+        if not any(ARTIFACT.match(f["name"]) for f in files):
+            continue
         projects.append({"proj": d.name, "size": sum(f["size"] for f in files), "files": files})
     with lock:
         aff = sorted(affinity.items())
@@ -1380,6 +1406,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and parts[0] == "cache" and len(parts) == 3:
                 with transfer():
                     return self.send_cache(os.path.join(CACHE, name(parts[1], "project"), name(parts[2], "file")))
+            if method == "DELETE" and parts[0] == "cache" and len(parts) in (2, 3):
+                fname = name(parts[2], "file") if len(parts) == 3 else None
+                return self.reply(200, delete_cache(name(parts[1], "project"), fname))
             if method == "GET" and path in ("/join", "/bin/install.sh"):
                 return self.reply(200, served_install(path == "/join"), "text/x-shellscript; charset=utf-8")
             if method == "GET" and parts[0] == "bin" and len(parts) == 2 and parts[1] in SHIPPED.union(LEGACY_BIN):

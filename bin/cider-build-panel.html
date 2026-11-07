@@ -112,7 +112,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .filters input[type=search] { flex: 1 1 240px; }
 .filters .count { margin-left: auto; color: var(--muted); font: 12px var(--mono); }
 .proj { margin-bottom: 18px; }
-.proj-head { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; font-weight: 600; border-bottom: 1px solid var(--line); }
+.proj-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; font-weight: 600; border-bottom: 1px solid var(--line); }
 
 .cmd { display: flex; gap: 10px; align-items: center; margin: 8px 0; }
 .cmd code { flex: 1; display: block; padding: 8px 12px; border: 1px solid var(--line); border-radius: 4px; overflow-x: auto; white-space: pre; }
@@ -517,10 +517,13 @@ function cacheHref(proj, name) { return "/cache/" + enc(String(proj)) + "/" + en
 function renderCache() {
   const c = S.cache || {}, projects = c.projects || [], aff = c.affinity || [];
   $("cachelist").replaceChildren(...(projects.length ? projects.map((p) => h("div", { class: "tablewrap proj" },
-    h("div", { class: "proj-head" }, h("span", { class: "mono" }, show(p.proj)), h("span", { class: "muted" }, bytes(p.size))),
+    h("div", { class: "proj-head" }, h("span", { class: "mono" }, show(p.proj)),
+      h("span", null, h("span", { class: "muted" }, bytes(p.size)), " ",
+        h("button", { type: "button", class: "danger", on: { click: () => deleteProject(p) } }, "Delete all"))),
     h("table", null, h("tbody", null, (p.files || []).map((f) => h("tr", null,
       h("td", { class: "mono" }, show(f.name)), h("td", { class: "num" }, bytes(f.size)), h("td", null, when(f.mtime)),
-      h("td", null, h("a", { href: cacheHref(p.proj, f.name), download: String(f.name) }, "Download")))))))) :
+      h("td", null, h("a", { href: cacheHref(p.proj, f.name), download: String(f.name) }, "Download"), " ",
+        h("button", { type: "button", class: "danger", on: { click: () => invalidateArtifact(p.proj, f.name) } }, "Invalidate")))))))) :
     [h("div", { class: "empty" }, "The cache is empty.")]));
   $("afflist").replaceChildren(table([["Project"], ["Plat."], ["Mac"]],
     aff.map((a) => h("tr", null, h("td", { class: "mono" }, show(a.proj)), h("td", null, show(a.plat)), h("td", null, macLink(a.worker)))),
@@ -663,6 +666,30 @@ async function cancelJob(j, waiting) {
      j.state === "queued" ? "It leaves the queue and never reaches a Mac." : "The agent on " + show(j.worker) + " stops the build and frees the slot."],
     "Cancel job");
   if (ok) act("Cancel " + j.id, "POST", "/detach?job=" + enc(j.id) + "&all=1");
+}
+function cacheBody(proj, it) {
+  return ["The next cider-build for " + it + " rebuilds it on a Mac.",
+    "A client waiting on a just-finished build of " + it + " fails its download and must run cider-build again.",
+    "Clients that already downloaded it keep their local copy in ~/.cache/cider-build/" + show(proj) +
+      " until they run with CIDER_BUILD_FORCE=1."];
+}
+async function dropCache(what, url) {
+  await act(what, "DELETE", url);
+  loadCache().catch(() => {});
+}
+async function invalidateArtifact(proj, file) {
+  const ok = await confirmAction("Invalidate " + show(file),
+    [show(proj) + " · " + show(file) + " is deleted from the hub cache.", ...cacheBody(proj, "that version")],
+    "Invalidate");
+  if (ok) dropCache("Invalidate " + file, cacheHref(proj, file));
+}
+async function deleteProject(p) {
+  const n = (p.files || []).length;
+  const ok = await confirmAction("Delete the cache of " + show(p.proj),
+    ["Its " + n + " artifact" + (n === 1 ? "" : "s") + " (" + bytes(p.size) + ") are deleted from the hub cache.",
+     ...cacheBody(p.proj, "any of its versions")],
+    "Delete all");
+  if (ok) dropCache("Delete cache of " + p.proj, "/cache/" + enc(String(p.proj)));
 }
 async function updateHub(rel) {
   const ok = await confirmAction("Update the hub to " + short((rel.remote || {}).commit),

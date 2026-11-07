@@ -6,9 +6,9 @@ The hub serves a web panel at `https://<hub>:4710/` and at `http://<hub's tailne
 
 It shows the Macs with their state, slots, RAM, Xcode and last heartbeat. It also shows the builds in progress, the queue, the history with filters, the cache with its downloads, affinity and the commands to join a Mac. Each job has its live log.
 
-From the panel you can cancel a job, change a Mac's slots, disable or enable it, and update the hub and the agents (see [Updates](updates.md)). Every action that changes something asks for confirmation before calling the hub.
+From the panel you can cancel a job, change a Mac's slots, disable or enable it, and update the hub and the agents (see [Updates](updates.md)). In the cache view you can invalidate one artifact or delete a project's whole cache, so the next cider-build for it rebuilds on a Mac. Every action that changes something asks for confirmation before calling the hub.
 
-The panel only reads the hub through `/api/state`, `/api/history`, `/api/cache`, `/api/job` and `/poll`, all JSON except `/poll`. Cancelling uses `POST /detach?job=<id>&all=1`, which cancels the job for every client waiting on it. Updates use `POST /hub/check`, `POST /hub/update` and `POST /workers/<mac>/update`.
+The panel only reads the hub through `/api/state`, `/api/history`, `/api/cache`, `/api/job` and `/poll`, all JSON except `/poll`. Cancelling uses `POST /detach?job=<id>&all=1`, which cancels the job for every client waiting on it. Updates use `POST /hub/check`, `POST /hub/update` and `POST /workers/<mac>/update`. Invalidating uses `DELETE /cache/<project>/<file>` and deleting a project's cache `DELETE /cache/<project>`.
 
 ## Updates
 
