@@ -43,7 +43,7 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 | Macs and their actions | [macs.md](./macs.md) | none yet |
 | Running jobs, queue, live log and cancel | [builds.md](./builds.md) | `journeys/warm.mjs` (warmed jobs in the queue and drawer only; run `cider-build warm` in a folder named `warmproj` first) |
 | History search and filters | [history.md](./history.md) | none yet |
-| Cache, affinity and Add a Mac | [cache-and-add.md](./cache-and-add.md) | none yet |
+| Cache, affinity and Add a Mac | [cache-and-add.md](./cache-and-add.md) | `journeys/cache-delete.mjs` (deletes from the cache, so run it last or on a fresh run); `journeys/cache-eviction.mjs` on a run started with a small `CIDER_BUILD_CACHE_KEEP` and `CIDER_BUILD_CACHE_PRUNE_S` |
 | Updates: the hub from its git repository, the agents from the hub | [updates.md](./updates.md) | `journeys/updates.mjs`; `journeys/updates-off.mjs` on a run started with `up --no-updates` |
 
 When you prove a feature, add its journey to `../journeys/` and to this table.
