@@ -96,7 +96,7 @@ a.card:hover { background: var(--hover); }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
 .b-online, .b-done { --c: var(--ok); }
 .b-no_tools, .b-nosrc { --c: var(--warn); }
-.b-drained { --c: var(--info); }
+.b-drained, .b-pending { --c: var(--info); }
 .b-stale, .b-failed { --c: var(--bad); }
 .b-assigned, .b-building, .b-updating { --c: var(--run); }
 
@@ -599,7 +599,7 @@ function hubUpdatesOff() {
 }
 function hubUpdates(rel) {
   const src = rel.source || {}, branch = src.branch ? show(src.branch) : "the branch"; // a hub older than hub.json sends no source
-  const remote = rel.remote || {}, commits = Array.isArray(rel.commits) ? rel.commits : [];
+  const remote = rel.remote || {};
   const idle = rel.phase === "idle";
   const status = PHASE_TEXT[rel.phase] || (!rel.checked ? "not checked yet" : rel.available ? "update available" : "up to date");
   return h("div", null,
@@ -616,9 +616,19 @@ function hubUpdates(rel) {
     h("div", { class: "toolbar" },
       h("button", { type: "button", disabled: !idle, on: { click: () => act("Check for updates", "POST", "/hub/check") } }, "Check for updates"),
       h("button", { type: "button", disabled: !(idle && rel.available), on: { click: () => updateHub(rel) } }, "Update hub")),
-    commits.length ? [h("h3", null, show(rel.behind) + " commit" + (num(rel.behind) === 1 ? "" : "s") + " behind" + (num(rel.behind) > commits.length ? " (latest " + commits.length + ")" : "")),
-      table([["Commit"], ["Subject"]], commits.map((c) => h("tr", null, h("td", { class: "mono" }, show(c.sha)), h("td", null, show(c.subject)))), "")] :
-      rel.available && rel.behind == null ? h("p", { class: "note" }, "The installed commit is not in the history of " + branch + ", so the commits in between can't be listed.") : null);
+    changelog(rel, branch));
+}
+function changelog(rel, branch) {
+  const changes = Array.isArray(rel.changelog) ? rel.changelog : [];
+  if (!changes.length) return null;
+  const behind = num(rel.behind);
+  return [h("h3", null, "Changelog of " + branch),
+    h("p", { class: "note" }, rel.behind == null ? "The installed commit is not in the history of " + branch + ", so which of these the hub runs is unknown."
+      : behind ? behind + " change" + (behind === 1 ? "" : "s") + " not installed yet." : "The hub runs all of them."),
+    table([["Commit"], ["Change"], ["PR"], ["Merged"], ["Installed"]], changes.map((c) => h("tr", null,
+      h("td", { class: "mono" }, short(c.sha)), h("td", null, show(c.subject)), h("td", { class: "mono" }, c.pr ? "#" + c.pr : "-"),
+      h("td", null, when(c.time)),
+      h("td", null, c.installed == null ? "-" : c.installed ? h("span", { class: "hint" }, "installed") : h("span", { class: "badge b-pending" }, "pending")))), "")];
 }
 function agentAction(w, agent) {
   if (w.update) return w.update_error ? h("span", { class: "err" }, "updating: " + show(w.update_error)) : h("span", { class: "hint" }, "updating");

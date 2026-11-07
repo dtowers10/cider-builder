@@ -307,7 +307,7 @@ sourcing = {}  # job id -> [requests carrying its source now open, when the last
 hub_url = {}  # "canonical": https://<tailnet name>:<port>, the URL everyone uses; "ip": tailnet IP; "label": tailnet HostName
 # phase: idle -> checking -> idle, or idle -> updating -> idle (refused) | restarting (the process exits)
 release = {"phase": "idle", "checked": None, "error": None, "installed": None, "remote": None, "available": False,
-           "behind": None, "commits": [], "deploy_key": None, "source": None}
+           "behind": None, "changelog": [], "deploy_key": None, "source": None}
 transfers = 0  # artifact downloads and source/result uploads in flight; an update restarts the hub only at 0
 
 
@@ -970,33 +970,45 @@ def deploy_pub():
         return None
 
 
+CHANGELOG = 30  # changes of the branch the panel lists, newest first
+MERGED_PR = re.compile(r"^Merge pull request #(\d+) from \S+$")
+SQUASHED_PR = re.compile(r"^(.*\S) \(#(\d+)\)$")
+
+
+def change(record, pending):
+    """One first-parent commit as the changelog shows it: a GitHub merge or squash is its PR's title and number."""
+    sha, ts, subject, body = record.strip("\n").split("\0", 3)
+    pr = None
+    merged = MERGED_PR.match(subject)
+    squashed = SQUASHED_PR.match(subject)
+    if merged and body.strip():
+        subject, pr = body.strip().splitlines()[0], int(merged.group(1))
+    elif squashed:
+        subject, pr = squashed.group(1), int(squashed.group(2))
+    return {"sha": sha, "subject": subject, "time": int(ts), "pr": pr,
+            "installed": None if pending is None else sha not in pending}
+
+
 def release_facts():
     """Compares what BIN has with the branch tip in the mirror. Call after fetch()."""
-    sha, subject, ts = git("log", "-1", "--format=%H%x00%s%x00%ct",
-                           "refs/heads/" + CONFIG.update_branch).decode().strip().split("\0")
+    tip = "refs/heads/" + CONFIG.update_branch
+    sha = git("rev-parse", tip).decode().strip()
     available = release_digest(installed_file) != release_digest(lambda src: git("show", "%s:%s" % (sha, src)))
-    installed = None
-    if not available:
-        installed = sha
-    else:
+    installed, pending = (sha, set()) if not available else (None, None)
+    if available:
         try:
             with open(os.path.join(BIN, ".commit")) as f:
                 installed = f.read().strip() or None
-        except OSError:
-            pass
-    behind, commits = (0 if not available else None), []
-    if available and installed:
-        try:
             git("cat-file", "-e", installed + "^{commit}")
-        except ReleaseError:
-            pass  # a commit the mirror does not have (a branch, or a rewritten history): unknown distance
+        except (OSError, TypeError, ReleaseError):
+            pass  # no .commit, or a commit the mirror does not have (a rewritten history): unknown distance
         else:
-            span = "%s..%s" % (installed, sha)
-            behind = int(git("rev-list", "--count", span))
-            commits = [dict(zip(("sha", "subject"), line.split("\0", 1)))
-                       for line in git("log", "-20", "--format=%h%x00%s", span).decode().splitlines()]
-    return {"installed": installed, "remote": {"commit": sha, "subject": subject, "time": int(ts)},
-            "available": available, "behind": behind, "commits": commits}
+            pending = set(git("rev-list", "--first-parent", "%s..%s" % (installed, sha)).decode().split())
+    log = git("log", "--first-parent", "-%d" % CHANGELOG, "--format=%H%x00%ct%x00%s%x00%b%x1e", tip).decode()
+    changelog = [change(r, pending) for r in log.split("\x1e") if r.strip()]
+    return {"installed": installed, "available": available, "behind": None if pending is None else len(pending),
+            "remote": {"commit": sha, "subject": changelog[0]["subject"], "time": changelog[0]["time"]},
+            "changelog": changelog}
 
 
 def check_release():

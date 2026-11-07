@@ -18,7 +18,7 @@ The panel's Fleet > Updates view updates the hub from a git repository and each 
 
 Hub updates are off when `update_url` is `off`, and while it is unset, which happens when the hub was installed from a copy that is not a git clone. `off` is a decision that stays: reinstalls and hub updates never replace it. Unset is not, and the next install from a clone fills it in. With updates off, the hub never runs git, the Updates view says so and shows the command that turns them on, and `POST /hub/check` and `POST /hub/update` answer 409.
 
-With a source, the hub keeps a bare copy of the branch in `~/cider-build/repo.git` and fetches it every 30 minutes (`update_check_s`) and on "Check for updates". It compares the files it runs (`install.sh` and `bin/`, fonts included) with the tip, and lists the commits it is behind. "Update hub" does this:
+With a source, the hub keeps a bare copy of the branch in `~/cider-build/repo.git` and fetches it every 30 minutes (`update_check_s`) and on "Check for updates". It compares the files it runs (`install.sh` and `bin/`, fonts included) with the tip, and shows the branch's changelog: its last 30 changes on the branch's main line, newest first, each marked installed or pending. A GitHub merge commit or a squash merge shows as its PR's title and number. "Update hub" does this:
 - Writes the new files to `~/cider-build/bin/.staged`.
 - Compiles the Python files and runs `bash -n` on the scripts.
 - Starts the new hub on the side, on scratch ports and a scratch folder with a copy of this hub's `hub.json`, until `/status` and the panel answer. A release that cannot read the hub's settings fails here.
