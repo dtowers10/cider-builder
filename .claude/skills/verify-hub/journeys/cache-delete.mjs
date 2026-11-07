@@ -1,15 +1,15 @@
 // Cache invalidation and project deletion from Cache & affinity (bin/cider-build-hub delete_cache).
 // It deletes from the cache of the run, so use a fresh run or one whose first listed project has 2+ artifacts.
 const first = `document.querySelector("#cachelist .proj")`;
-const firstName = `${first}.querySelector(".proj-head .mono").textContent`;
-const rows = `${first}.querySelectorAll("tbody tr").length`;
+const firstName = `${first}.dataset.proj`;
+const rows = `${first}.querySelectorAll("tr.file").length`;
 const lastToast = `[...document.querySelectorAll("#toasts .toast")].map((e) => e.textContent).pop() || ""`;
 
 export default async (t) => {
   await t.nav("/#/cache");
   await t.waitFor(`${first} && ${rows} >= 2`, 10000);
   const proj = await t.ev(firstName);
-  const file = await t.ev(`${first}.querySelector("tbody td").textContent`);
+  const file = await t.ev(`${first}.querySelector("tr.file").dataset.file`);
   const before = await t.ev(rows);
   await t.click("#cachelist button", "Invalidate");
   await t.waitFor(`document.getElementById("confirm").open`, 3000);
@@ -20,17 +20,17 @@ export default async (t) => {
   await t.click("#confirm-yes");
   await t.waitFor(`${rows} === ${before - 1}`, 10000);
   t.check("cache-invalidate: toast confirms the deletion", (await t.ev(lastToast)) === `Invalidate ${file}: deleted ${proj}/${file}`, await t.ev(lastToast));
-  t.check("cache-invalidate: the artifact is gone from the list", !(await t.ev(`${first}.textContent`)).includes(file));
+  t.check("cache-invalidate: the artifact is gone from the list", !(await t.ev(`[...${first}.querySelectorAll("tr.file")].map((r) => r.dataset.file)`)).includes(file));
 
   const blocks = await t.ev(`document.querySelectorAll("#cachelist .proj").length`);
   const left = await t.ev(rows);
-  await t.click("#cachelist .proj-head button", "Delete all");
+  await t.click("#cachelist .proj-head button", "Clear cache");
   await t.waitFor(`document.getElementById("confirm").open`, 3000);
   await t.click("#confirm-yes");
   await t.waitFor(`document.querySelectorAll("#cachelist .proj").length === ${blocks - 1}`, 10000);
   const plural = left === 1 ? "" : "s";
   t.check("cache-delete-project: toast confirms the deletion",
-    (await t.ev(lastToast)) === `Delete cache of ${proj}: deleted ${left} artifact${plural} of ${proj}`, await t.ev(lastToast));
+    (await t.ev(lastToast)) === `Clear cache of ${proj}: deleted ${left} artifact${plural} of ${proj}`, await t.ev(lastToast));
   t.check("cache-delete-project: the project drops out of the list", (await t.ev(firstName)) !== proj);
   await t.shot("cache-after-delete");
 };

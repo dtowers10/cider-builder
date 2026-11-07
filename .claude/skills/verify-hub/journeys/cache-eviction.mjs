@@ -10,8 +10,8 @@ export default async (t) => {
   await t.nav("/");
   await t.click('#nav a[href="#/cache"]');
   await t.waitFor(`document.querySelectorAll("#cachelist .proj").length > 0`, 10000);
-  const rows = `[...document.querySelectorAll("#cachelist .proj")].find((p) => p.querySelector(".proj-head .mono").textContent === "demo")`;
-  const shown = await t.ev(`[...${rows}.querySelectorAll("tbody tr td:first-child")].map((td) => td.textContent)`);
+  const rows = `[...document.querySelectorAll("#cachelist .proj")].find((p) => p.dataset.proj === "demo")`;
+  const shown = await t.ev(`[...${rows}.querySelectorAll("tr.file")].map((tr) => tr.dataset.file)`);
   const api = await t.ev(`fetch("/api/cache").then((r) => r.json()).then((c) => c.projects.find((p) => p.proj === "demo").files.map((f) => f.name))`);
   t.check("cache-eviction: the panel lists the same demo files as /api/cache, in the same order", JSON.stringify(shown) === JSON.stringify(api), JSON.stringify(shown));
   t.check("cache-eviction: no pruned artifact is listed", PRUNED.every((n) => !shown.includes(n)), PRUNED.join());
