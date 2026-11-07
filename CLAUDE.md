@@ -6,20 +6,23 @@ Bash and Python 3.9, standard library only. Keep it that way: CI compiles every 
 
 ## Verification
 
-Every change ends with the `maintain-verification` skill (`.claude/skills/maintain-verification/SKILL.md`). Start it with:
+Two project skills verify the code:
 
-```bash
-verification/lanes.py            # which verification this change needs
-verification/lanes.py --check    # whether the verification still matches the code; CI runs it too
-```
+- `.claude/skills/verify-job-protocol/` checks the hub and agent job protocol with TLA+ (`verification/verify.sh`). It records the sync commit at which the model last matched the code.
+- `.claude/skills/verify-hub/` drives the panel and `cider-build status` against a disposable seeded hub, from the feature map in `features/`.
 
-It routes to these:
+`verification/*.py` are the hub, client and install tests. They run on Linux with fakes and touch no network. `docs/verification.md` describes each one.
 
-- `.claude/skills/verify-job-protocol/` checks the hub and agent job protocol with TLA+ (`verification/verify.sh`). Any change to the queue, assignment, heartbeats, retries, cancellation, result delivery or Run cleanup needs it.
-- `.claude/skills/verify-hub/` drives the panel and `cider-build status` against a disposable seeded hub.
-- `verification/*.py` are the hub, client and install tests. They run on Linux with fakes and touch no network. `docs/verification.md` describes each one.
+### When you add a feature
 
-A feature is not done until its lanes pass and this file, the docs and the verification skills describe it.
+1. Run `verification/lanes.py`. It prints the lanes the change needs since the merge-base with `main`.
+2. For the `protocol` lane, run `/pstack:maintain-formal-verification-skill` on `verify-job-protocol`. It brings the TLA+ model in line with the changed functions, reruns `verify.sh`, reports drift and bugs separately, and moves the sync commit. Put that update in its own commit, apart from the product change.
+3. For the `panel` lane, run `/pstack:maintain-verification-skill` on `verify-hub`. A new panel feature gets a `features/*.md` entry, a journey in `journeys/`, and a row in `features/README.md`, all driven live.
+4. For the `tests` and `lint` lanes, run what `lanes.py` names.
+5. Update this file when the feature adds a part, a command, a setting or a rule.
+6. Run `verification/lanes.py --check`. It must print `RESULT pass`. CI runs it on every PR.
+
+A feature is not done until these pass. If you cannot run a pstack skill as a slash command, read its `SKILL.md` in the pstack plugin and follow it.
 
 ## Rules
 

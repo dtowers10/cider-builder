@@ -21,10 +21,10 @@ CI = ROOT / ".github/workflows/ci.yml"
 HELPERS = {"lanes.py", "trace.py"}
 
 LANES = {
-    "protocol": "verify-job-protocol skill: update JobProtocol.tla to match, run verification/verify.sh, "
-    "then advance its sync commit",
-    "panel": "verify-hub skill: run the journeys of the features you touched; a new feature gets a journey "
-    "and a row in features/README.md",
+    "protocol": "run /pstack:maintain-formal-verification-skill on the verify-job-protocol skill: the TLA+ model "
+    "must describe the changed functions, verification/verify.sh must pass, and the sync commit moves",
+    "panel": "run /pstack:maintain-verification-skill on the verify-hub skill: a new panel feature gets a "
+    "features/*.md entry, a journey, and a row in features/README.md, all driven live",
     "tests": "run every verification/*.py test (the CI hub job); new HTTP, CLI or install behaviour gets a check "
     "in the script that owns it, or a new script added to ci.yml and docs/verification.md",
     "lint": "bash -n, shellcheck and py_compile, as the CI lint job does",
