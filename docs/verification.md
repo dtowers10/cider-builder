@@ -31,6 +31,8 @@
 
 `verification/warm-upload.py` runs the real client and hub with a 10 s `SOURCE_TTL` and checks `cider-build warm`: a full and an incremental upload slower than the TTL keep their job, an upload that stops sending and a job that never gets a byte are cleaned up, and a warm-up cancelled from the panel mid-upload says so.
 
-GitHub Actions (`.github/workflows/ci.yml`) runs, on every PR and every push to `main`, the script lint (which also rejects any `*.ts.net` name other than `example.ts.net`), `verify.sh` and the ten hub tests, with Python 3.9.
+`verification/lanes.py` says which of these a change needs: the TLA+ model when a function in its coverage table changed since the model's sync commit, the panel journeys, the test scripts and the lint. `verification/lanes.py --check` fails when the verification drifts from the code: a test CI does not run, a panel journey missing from its feature table, or a coverage table that names a function the code no longer defines. The `maintain-verification` skill in `.claude/skills/` walks through both.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs, on every PR and every push to `main`, the script lint (which also rejects any `*.ts.net` name other than `example.ts.net` and runs `lanes.py --check`), `verify.sh` and the ten hub tests, with Python 3.9.
 
 The details, the coverage and how to maintain the model are in `.claude/skills/verify-job-protocol/SKILL.md`.
