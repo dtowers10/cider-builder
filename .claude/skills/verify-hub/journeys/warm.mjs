@@ -1,21 +1,18 @@
-// `cider-build warm`: the jobs it starts show up in the queue and open in the drawer like any other.
-// Precondition: `cider-build warm` ran against this run's hub in a project folder named warmproj.
 const PROJ = "warmproj";
 
 export default async (t) => {
-  await t.nav("/#/builds");
-  await t.waitFor(`document.querySelectorAll("#queue tbody tr").length > 0`, 5000);
-  const rows = () => t.ev(`[...document.querySelectorAll("#queue tbody tr, #running tbody tr")]
+  await t.nav("/#/board");
+  await t.waitFor(`document.querySelectorAll("#board-queue li, #board-lanes .cell.job").length > 0`, 5000);
+  const rows = () => t.ev(`[...document.querySelectorAll("#board-queue li, #board-lanes .cell.job")]
     .filter((r) => r.textContent.includes(${JSON.stringify(PROJ)})).map((r) => r.textContent.replace(/\\s+/g, " ").trim())`);
   const found = await rows();
-  t.check("warm-queue: both warmed platforms are listed in Running & queue",
+  t.check("warm-queue: both warmed platforms are on the Board, in the queue or in a slot",
     found.length === 2 && found.some((r) => r.includes("ios")) && found.some((r) => r.includes("android")), JSON.stringify(found));
   t.check("warm-queue: neither is marked as missing its source", found.every((r) => !r.includes("no source")), JSON.stringify(found));
   await t.shot("warm-queue");
 
-  const id = await t.ev(`[...document.querySelectorAll("#queue tbody tr, #running tbody tr")]
-    .find((r) => r.textContent.includes(${JSON.stringify(PROJ)}) && r.textContent.includes("ios"))
-    ?.querySelector('a[href^="#job/"]')?.getAttribute("href").slice(5)`);
+  const id = await t.ev(`[...document.querySelectorAll("#board-queue li, #board-lanes .cell.job")]
+    .find((r) => r.textContent.includes(${JSON.stringify(PROJ)}) && r.textContent.includes("ios"))?.dataset.id`);
   await t.click(`a[href="#job/${id}"]`);
   await t.waitFor(`!document.getElementById("drawer").hidden`, 5000);
   const title = await t.ev(`document.getElementById("drawer-title").textContent`);

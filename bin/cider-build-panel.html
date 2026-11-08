@@ -32,37 +32,39 @@ button.danger { color: var(--bad); border-color: currentColor; }
 button.danger:hover:not(:disabled) { background: var(--bad); color: var(--bg); border-color: var(--bad); }
 input, select { background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; min-width: 0; }
 input:hover, select:hover { border-color: var(--strong); }
-.mono, code, pre, table, .kv dd, .meter-row, .summary, .conn, .toast { font-family: var(--mono); font-size: 12px; }
+.mono, code, pre, table, .kv dd, .conn, .toast, .nav-count, .plat, .line2, .log-find, .log-status { font-family: var(--mono); font-size: 12px; }
 .mono { font-variant-ligatures: none; }
 .muted { color: var(--muted); }
 .err { color: var(--bad); }
 
-.side { position: fixed; top: 0; left: 0; bottom: 0; z-index: 6; width: 220px; display: flex; flex-direction: column;
-        padding: 0 0 14px; background: var(--bg); border-right: 1px solid var(--line); overflow-y: auto; }
-.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; height: var(--bar); padding: 17px 18px 0;
-         border-bottom: 1px solid var(--line); }
+.bar { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 18px; min-height: var(--bar); padding: 0 24px;
+       background: var(--bg); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
 .brand h1 { font: 600 14px/1 var(--mono); letter-spacing: -.01em; margin: 0; white-space: nowrap; }
 .brand .mono { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-btn { display: none; }
-.side nav { flex: 1; padding: 14px 10px 0; }
-.side ul { list-style: none; margin: 0 0 18px; padding: 0; }
-.nav-group { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--idle); margin: 0 0 6px; padding: 0 10px; }
-.side nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; margin: 1px 0;
-              color: var(--muted); text-decoration: none; border-radius: 6px; }
-.side nav a:hover { color: var(--fg); background: var(--hover); }
-.side nav a[aria-current="page"] { color: var(--fg); background: #1a1a1a; font-weight: 500; }
-.nav-count { display: flex; gap: 10px; font: 12px var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.bar nav ul { display: flex; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.bar nav a { display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--muted); text-decoration: none; border-radius: 6px;
+             white-space: nowrap; }
+.bar nav a:hover { color: var(--fg); background: var(--hover); }
+.bar nav a[aria-current="page"] { color: var(--fg); background: #1a1a1a; font-weight: 500; }
+.nav-count { display: flex; gap: 10px; font-variant-numeric: tabular-nums; color: var(--muted); }
 .nav-count > span { display: inline-flex; align-items: center; gap: 5px; }
-.side .conn { padding: 12px 18px 0; border-top: 1px solid var(--line); }
-.content { margin-left: 220px; min-width: 0; }
-.top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; min-height: var(--bar); padding: 0 24px;
-        background: var(--bg); border-bottom: 1px solid var(--line); }
-.summary { display: flex; flex-wrap: wrap; gap: 4px 22px; color: var(--muted); }
-.summary b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
-.conn { display: flex; align-items: center; gap: 7px; color: var(--muted); }
+.nav-count:empty { display: none; }
+.alerts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
+.chip { --c: var(--idle); display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); white-space: nowrap; color: var(--fg);
+        border: 1px solid var(--strong); border-radius: 999px; padding: 1px 8px; text-decoration: none; }
+.chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
+.chip:hover { border-color: var(--fg); }
+.chip.bad { --c: var(--bad); }
+.chip.warn { --c: var(--warn); }
+.chip.info { --c: var(--info); }
+.alerts-n { display: none; }
+.conn { display: flex; flex: none; align-items: center; gap: 7px; color: var(--muted); white-space: nowrap; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--idle); }
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--bad); }
+.dot.warn { background: var(--warn); }
 .dot.out { background: var(--info); }
 .dot.run { background: var(--run); }
 .sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -73,24 +75,51 @@ h2 { font-size: 13px; font-weight: 600; margin: 0 0 14px; }
 h3 { font-size: 13px; font-weight: 500; margin: 26px 0 10px; color: var(--muted); }
 h2 + h3 { margin-top: 0; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); border-top: 1px solid var(--line);
-         border-left: 1px solid var(--line); }
-.card { display: block; padding: 16px 18px; color: inherit; text-decoration: none; border-right: 1px solid var(--line);
-        border-bottom: 1px solid var(--line); }
-a.card:hover { background: var(--hover); }
-.cards > .empty { grid-column: 1 / -1; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 18px; }
-.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.card-head strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.meter-row { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 10px; margin: 5px 0; }
-.meter-row > :first-child { font-family: var(--sans); }
+.board { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+.board-side { min-width: 0; }
+.board h3:first-child { margin-top: 0; }
+#board-recent { margin-top: 26px; }
+.lanes { border-top: 1px solid var(--line); }
+.lane { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.lane-who { min-width: 0; }
+.lane-who .mono { font-weight: 600; }
+.lane-who .muted { margin-top: 4px; }
+.cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.cell { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; min-width: 0; }
+.cell.job { cursor: pointer; }
+.cell.job:hover { background: var(--hover); }
+.cell.free, .cell.off, .cell.ghost { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 6px;
+                                     border-style: dashed; color: var(--muted); text-align: center; }
+.cell .meter { margin: 8px 0 6px; }
 .meter { height: 2px; background: var(--line); overflow: hidden; }
 .meter span { display: block; height: 100%; background: var(--fg); }
 .meter span.full { background: var(--warn); }
+.long { color: var(--warn); }
+.who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.who b { font-weight: 600; }
+.plat { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.line2 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; margin-top: 4px; color: var(--muted); }
+.items { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.items li { padding: 8px 0; border-bottom: 1px solid var(--line); cursor: pointer; }
+.items li:hover { background: var(--hover); }
+.est { color: var(--muted); margin: 0 0 10px; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); border-top: 1px solid var(--line);
+         border-left: 1px solid var(--line); }
+.card { display: block; padding: 16px 18px; cursor: pointer; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.card:hover { background: var(--hover); }
+.cards > .empty { grid-column: 1 / -1; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 14px 18px; }
+.card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.card-head strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-line { color: var(--muted); margin-top: 6px; }
+.attn { border: 1px solid var(--info); border-radius: 4px; padding: 8px 12px; margin-bottom: 14px; }
+.attn:empty { display: none; }
+.attn p { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 4px 0; }
+.attn p > span:first-child { flex: 1; }
+.jump { margin: 0 0 14px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 14px 0 0; }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
-.info { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font: 11.5px/1.6 var(--mono); color: var(--muted); }
-.info div { overflow-wrap: anywhere; }
 
 .badge { --c: var(--idle); display: inline-flex; align-items: center; gap: 6px; font: 12px var(--mono); white-space: nowrap; color: var(--fg); }
 .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--c); flex: none; }
@@ -111,6 +140,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .filters input[type=search] { flex: 1 1 240px; }
 .filters .count { margin-left: auto; color: var(--muted); font: 12px var(--mono); }
+.seg { display: inline-flex; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.opt { border: 1px solid var(--strong); border-radius: 999px; padding: 1px 9px; cursor: pointer; }
+.opt:hover { border-color: var(--fg); }
+.opt:has(:checked) { border-color: var(--fg); background: var(--hover); }
+.opt:has(:focus-visible) { outline: 2px solid var(--fg); outline-offset: 2px; }
 .cache { table-layout: fixed; min-width: 620px; }
 .cache col.c-plat { width: 84px; } .cache col.c-size { width: 84px; } .cache col.c-used { width: 156px; } .cache col.c-act { width: 196px; }
 .cache td.ver { overflow: hidden; text-overflow: ellipsis; }
@@ -136,16 +170,29 @@ h2[tabindex="-1"]:focus { outline: none; }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); z-index: 9; }
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(820px, 100vw); z-index: 10; background: var(--bg);
           border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.drawer.wide { width: min(1100px, 100vw); }
 .drawer-head { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .drawer-head h2 { flex: 1; margin: 0; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-body { overflow-y: auto; padding: 18px 20px 40px; flex: 1; }
+.drawer-body.job { display: flex; flex-direction: column; overflow: hidden; padding-bottom: 18px; }
 .drawer .kv { grid-template-columns: minmax(130px, auto) 1fr; margin: 0; }
+.drawer .note { margin: 0 0 14px; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
 .toolbar input[type=number] { width: 72px; font-family: var(--mono); }
 .hint { color: var(--muted); }
-.log-status { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; color: var(--muted); font: 12px var(--mono); margin: 8px 0; }
+.job-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.job-head .details { margin-left: auto; }
+#job-more { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.log-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.log-tools input[type=search] { flex: 1 1 160px; }
+.log-find, .log-status { color: var(--muted); }
+.log-tools .log-status { margin-left: auto; }
 pre.log { margin: 0; padding: 12px 14px; max-height: 62vh; min-height: 120px; overflow: auto; background: var(--hover); color: var(--fg);
           border: 1px solid var(--line); border-radius: 4px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.job pre.log { flex: 1; min-height: 0; max-height: none; }
+pre.log.nowrap { white-space: pre; overflow-wrap: normal; }
+::highlight(log-hit) { background-color: var(--strong); }
+::highlight(log-cur) { background-color: var(--warn); color: var(--bg); }
 
 dialog { border: 1px solid var(--strong); border-radius: 6px; padding: 20px 22px; background: var(--bg); color: var(--fg);
          max-width: min(500px, 94vw); }
@@ -158,60 +205,64 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 .toast { background: var(--fg); color: var(--bg); padding: 9px 14px; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .toast.bad { background: var(--bad); color: #000; }
 @media (max-width: 860px) {
-  .side { position: sticky; bottom: auto; width: auto; flex-direction: row; align-items: center; gap: 16px; padding: 10px 16px;
-          border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
-  .brand { flex: 1; height: auto; padding: 0; border-bottom: 0; }
-  .side .conn { order: 1; padding: 0; border-top: 0; }
+  .bar { gap: 10px; padding: 10px 16px; }
+  .brand { flex: 1; }
+  .alerts { order: 1; margin-left: 0; flex-wrap: nowrap; }
+  .alerts .chip:not(.alerts-n), .alerts .muted { display: none; }
+  .alerts .alerts-n { display: inline-flex; }
+  .conn { order: 2; }
   #conntext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .menu-btn { display: block; order: 2; }
-  .side nav { display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: calc(100vh - 52px); overflow-y: auto;
-              padding: 12px 8px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
-  .side.open nav { display: block; }
-  .content { margin-left: 0; }
-  .top { position: static; padding: 10px 16px; }
+  .menu-btn { display: block; order: 3; }
+  .bar nav { display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: calc(100vh - 52px); overflow-y: auto;
+             padding: 12px 8px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .bar.open nav { display: block; }
+  .bar nav ul { flex-direction: column; }
+  .board, .lane { grid-template-columns: minmax(0, 1fr); }
+  .cell.free { display: none; }
+  .tablewrap table, .tablewrap thead, .tablewrap tbody, .tablewrap tr, .tablewrap th, .tablewrap td { display: block; }
+  .tablewrap thead { display: none; }
+  .tablewrap tr { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .tablewrap th, .tablewrap td { border: 0; padding: 0; white-space: normal; text-align: left; }
+  .cache { min-width: 0; }
+  .cache .proj-head th, .cache .proj-head td { padding: 14px 0 0; }
+  .tablewrap td::before { content: attr(data-l) ": "; color: var(--muted); }
+  .tablewrap td:empty { display: none; }
+  .tablewrap td[data-l=""]::before { content: none; }
+  .drawer.wide { width: 100vw; }
 }
 @media (max-width: 560px) {
-  .top { padding: 8px 14px; } main { padding: 20px 14px 48px; }
+  main { padding: 20px 14px 48px; }
   .cards { grid-template-columns: 1fr; }
-  .cache { min-width: 0; }
-  .cache col.c-plat, .cache col.c-used { width: 0; }
-  .cache .opt { padding: 0; overflow: hidden; visibility: hidden; }
   .drawer .kv { grid-template-columns: 1fr; }
   .drawer .kv dt { margin-top: 6px; }
 }
 </style>
 </head>
 <body>
-<header id="side" class="side">
+<header id="bar" class="bar">
   <div class="brand"><h1>Cider Builder</h1><span id="hubname" class="mono"></span></div>
   <button id="menu-btn" class="menu-btn" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
   <nav id="nav" aria-label="Views"></nav>
+  <div id="summary" class="alerts" aria-label="Alerts"></div>
   <div class="conn"><span id="conndot" class="dot"></span><span id="conntext">connecting…</span></div>
 </header>
-<div class="content">
-<div class="top"><div id="summary" class="summary"></div></div>
 <div id="banner" class="banner" role="alert" hidden></div>
 <main>
-  <section id="view-overview" hidden>
-    <h3>Fleet</h3><div id="ov-fleet"></div>
-    <h3>Building now</h3><div id="ov-running"></div>
-    <p id="ov-queued" class="note" hidden><a href="#/builds"></a></p>
-    <h3>Recent failures</h3><div id="ov-failures"></div>
-    <p class="note"><a id="ov-all-failures" href="#/history">All failures in History</a></p>
-  </section>
-  <section id="view-macs" hidden><div id="maclist" class="cards"></div></section>
-  <section id="view-add" hidden><div id="join"></div></section>
-  <section id="view-updates" hidden>
-    <h3>Hub</h3><div id="up-hub"></div>
-    <h3>Agents</h3><div id="up-agents"></div>
-  </section>
-  <section id="view-builds" hidden>
-    <h3>Running</h3><div id="running"></div>
-    <h3>Queue</h3><div id="queue"></div>
+  <section id="view-board" hidden>
+    <div class="board">
+      <div id="board-lanes"></div>
+      <div class="board-side">
+        <div id="board-queue"></div>
+        <div id="board-recent"></div>
+        <p class="note"><a href="#/history">All history</a> · <a id="board-failures" href="#/history">Failures in History</a></p>
+      </div>
+    </div>
   </section>
   <section id="view-history" hidden>
     <div class="filters">
       <input id="f-q" type="search" placeholder="Search id, project, key, client or Mac" aria-label="Search">
+      <fieldset id="f-when" class="seg"><legend class="sr">Finished in</legend></fieldset>
+      <label class="opt"><input class="sr" type="checkbox" id="f-failed">Failed</label>
       <select id="f-state" aria-label="State">
         <option value="">all states</option><option value="done">done</option><option value="failed">failed</option><option value="cancelled">cancelled</option>
       </select>
@@ -222,9 +273,15 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
     </div>
     <div id="histlist"></div>
   </section>
+  <section id="view-fleet" hidden>
+    <p class="jump"><a href="#/updates">Updates</a> · <a href="#/add">Add a Mac</a></p>
+    <div id="fleet-banner" class="attn"></div>
+    <div id="maclist" class="cards"></div>
+    <h3 id="fleet-updates" tabindex="-1">Updates</h3><div id="up-hub"></div>
+    <h3 id="fleet-add" tabindex="-1">Add a Mac</h3><div id="join"></div>
+  </section>
   <section id="view-cache" hidden><h3>Cache</h3><div id="cachelist"></div><h3>Affinity</h3><div id="afflist"></div></section>
 </main>
-</div>
 <div id="scrim" class="scrim" hidden></div>
 <aside id="drawer" class="drawer" aria-labelledby="drawer-title" hidden>
   <div class="drawer-head"><h2 id="drawer-title"></h2><button id="drawer-close" type="button" aria-label="Close">Close</button></div>
@@ -238,10 +295,11 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
 <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
 <script>
 "use strict";
-// Everything from the hub is external data: the DOM is built with h() and text nodes, never with HTML strings.
 const POLL_MS = 2000, MIN_MS = 1000, MAX_BACKOFF_MS = 10000, CACHE_MS = 30000;
-const LOG_TAIL = 1 << 20, LOG_CAP = 4e6, HISTORY_ROWS = 500;
+const LOG_TAIL = 1 << 20, LOG_CAP = 4e6, HISTORY_ROWS = 500, LOG_HITS_MAX = 1000;
 const ACTIVE = ["queued", "assigned", "building"];
+const DAY = 86400, RECENT_ROWS = 10, RECENT_STATES = ["done", "failed"], MIN_SAMPLES = 2;
+const SOURCE_TTL = 120;
 const $ = (id) => document.getElementById(id);
 const enc = encodeURIComponent;
 
@@ -286,28 +344,84 @@ function bytes(n) {
   return (i ? n.toFixed(n < 10 ? 1 : 0) : n) + " " + u[i];
 }
 function took(j) { return j.finished ? mmss(num(j.finished) - num(j.started || j.created)) : "-"; }
-// The hub sends state_text (the same text as cider-build status); the panel names each state by its code instead.
+function short(sha) { return sha ? String(sha).slice(0, 12) : null; }
+const pp = (j) => show(j.proj) + "-" + show(j.plat);
+
 const STATE_TEXT = { online: "online", stale: "no heartbeat", drained: "out of the pool", no_tools: "missing tools",
-  disabled: "disabled", nosrc: "no source yet", updating: "updating the agent" };
+  disabled: "disabled", nosrc: "no source yet", updating: "updating the agent", refused: "never scheduled" };
+const MAC_DISPLAY = {
+  online:   { takes: true,  action: null,     why: () => "" },
+  refused:  { takes: false, action: "why",    why: (m, hub) => m.label === show(hub.label) ? "This Mac is the hub: it coordinates and does not build." : "It is in the hub's exclude setting, so the hub never gives it builds." },
+  updating: { takes: false, action: "why",    why: () => "It finishes the builds it has, then installs the hub's agent and restarts. Queued builds go to other Macs meanwhile." },
+  drained:  { takes: false, action: "why",    why: () => "The hub's drain_command lists it, so it takes no new builds." },
+  no_tools: { takes: false, action: "why",    why: () => "The agent reports a missing build tool (Xcode, node, CocoaPods, xcodegen, Java 17 or the Android SDK). It checks again by itself." },
+  stale:    { takes: false, action: "why",    why: () => "The hub has had no heartbeat for 30 s or more: the Mac is off or asleep, off the tailnet, or its agent stopped. Builds it was running go back to the queue if it stays silent." },
+  disabled: { takes: false, action: "enable", why: () => "It was disabled from this panel or with cider-build remove. Enable it to take builds again." },
+  unknown:  { takes: false, action: "why",    why: (m) => "The hub reports a state this panel does not know: " + m.code + "." },
+};
+const display = (code) => MAC_DISPLAY[code] || MAC_DISPLAY.unknown;
+const AGENT = {
+  current:  { outdated: false, canUpdate: false, note: null },
+  outdated: { outdated: true,  canUpdate: true,  note: () => "agent outdated" },
+  too_old:  { outdated: true,  canUpdate: false, note: (m) => "agent outdated: run cider-build add " + m.label + " once" },
+  updating: { outdated: true,  canUpdate: false, note: () => "updating the agent" },
+  failed:   { outdated: true,  canUpdate: false, note: (m) => "agent update failed: " + m.updateError },
+};
+const ALERTS = [
+  (M) => M.macs.filter((m) => m.code === "stale").map((m) => ({ tone: "bad", text: m.label + " lost", ago: m.seen, href: macHref(m.label) })),
+  (M) => M.macs.filter((m) => m.agent === "failed").map((m) => ({ tone: "bad", text: m.label + " agent update failed", href: macHref(m.label) })),
+  (M) => M.release.error ? [{ tone: "bad", text: "hub update error", href: "#/updates" }] : [],
+  (M) => M.macs.filter((m) => m.code === "no_tools").map((m) => ({ tone: "warn", text: m.label + " missing tools", href: macHref(m.label) })),
+  (M) => M.release.available || M.counts.outdated ? [{ tone: "info", href: "#/updates",
+    text: [M.release.available ? "Hub update" : null, M.counts.outdated ? M.counts.outdated + " agents outdated" : null].filter(Boolean).join(" · ") }] : [],
+];
+const TONE_DOT = { bad: "bad", warn: "warn", info: "out" };
+const VIEWS = [
+  { id: "board",   label: "Board",   aliases: { overview: null, builds: null, trabajos: null },
+    count: (M) => [[M.counts.building, "building", "run"], [M.counts.queued, "queued", "idle"]] },
+  { id: "history", label: "History", aliases: { historial: null },
+    count: (M) => [[M.counts.failed24, "failed in the last 24 h", "bad"]] },
+  { id: "fleet",   label: "Fleet",   aliases: { macs: null, add: "fleet-add", unir: "fleet-add", updates: "fleet-updates" },
+    count: (M) => [[M.alerts.length, "need attention", M.alerts.length ? TONE_DOT[M.alerts[0].tone] : null]] },
+  { id: "cache",   label: "Cache",   aliases: {},
+    count: (M) => [[M.cacheBytes ? bytes(M.cacheBytes) : 0, "cached", null]] },
+];
+const VIEW_BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
+const VIEW_BY_NAME = new Map(VIEWS.flatMap((v) => [[v.id, { view: v.id, target: null }],
+  ...Object.entries(v.aliases).map(([a, target]) => [a, { view: v.id, target }])]));
+const WINDOWS = [["24 h", DAY], ["All", null]];
+const FILTERS = [["f-plat", "plat", "all platforms"], ["f-mac", "worker", "all Macs"], ["f-client", "client", "all clients"]];
+const LIVE = {
+  since: (el, t) => { el.textContent = mmss(t - num(el.dataset.since)); },
+  ago:   (el) => { el.textContent = ago(num(el.dataset.ago)); },
+  left:  (el, t) => { const s = num(el.dataset.left) - t; el.textContent = s > 0 ? "~" + mmss(s) + " left" : "running long"; el.classList.toggle("long", s <= 0); },
+  until: (el, t) => { const s = num(el.dataset.until) - t; el.textContent = s > 0 ? "in ~" + mmss(s) : "soon"; },
+  fill:  (el, t) => { const a = num(el.dataset.fill), b = num(el.dataset.end);
+                      el.style.width = Math.min(100, Math.max(0, (t - a) / Math.max(1, b - a) * 100)) + "%"; el.classList.toggle("full", t >= b); },
+};
+
+function live(kind, value, extra) { const el = h("span", { ["data-" + kind]: value, ...extra }); LIVE[kind](el, now()); return el; }
+function since(ts) { return live("since", num(ts)); }
+function agoEl(ts) { return live("ago", num(ts)); }
+function meter(from, to) { return h("div", { class: "meter" }, live("fill", from, { "data-end": to })); }
 function badge(code) { return h("span", { class: "badge b-" + String(code).replace(/[^a-z_]/g, ""), title: show(code) }, STATE_TEXT[code] || show(code)); }
-function since(ts) { return h("span", { "data-since": num(ts) }, mmss(now() - num(ts))); }
-function agoEl(ts) { return h("span", { "data-ago": num(ts) }, ago(ts)); }
 function jobHref(id) { return "#job/" + enc(String(id)); }
 function macHref(label) { return "#mac/" + enc(String(label)); }
 function macLink(label) { return label ? h("a", { href: macHref(label), class: "mono" }, show(label)) : "-"; }
 function kv(rows) { return h("dl", { class: "kv" }, rows.filter(Boolean).map(([k, v]) => [h("dt", null, k), h("dd", null, v instanceof Node ? v : show(v))])); }
+function stamp(rows, labels) {
+  for (const tr of rows) [...tr.children].forEach((td, i) => td.setAttribute("data-l", labels[i] || ""));
+  return rows;
+}
 function table(head, rows, empty) {
   if (!rows.length) return h("div", { class: "empty" }, empty);
   return h("div", { class: "tablewrap" }, h("table", null,
-    h("thead", null, h("tr", null, head.map(([t, c]) => h("th", { class: c }, t)))), h("tbody", null, rows)));
+    h("thead", null, h("tr", null, head.map(([t, c]) => h("th", { class: c }, t)))), h("tbody", null, stamp(rows, head.map((x) => x[0])))));
 }
-function clickRow(href, cells) {
-  return h("tr", { class: "click", on: { click: (e) => { if (!e.target.closest("a")) location.hash = href; } } }, cells);
-}
+function goOnClick(href) { return (e) => { if (!e.target.closest("a, button, input, select")) location.hash = href; }; }
+function clickRow(href, cells) { return h("tr", { class: "click", on: { click: goOnClick(href) } }, cells); }
 
-// --- state and polling ----------------------------------------------------------------------------
-
-const S = { st: null, hist: null, cache: null, skew: 0, okAt: 0, fails: 0, err: "", rev: null, cacheAt: 0, joinKey: "", updatesKey: "" };
+const S = { st: null, hist: null, cache: null, skew: 0, okAt: 0, fails: 0, err: "", rev: null, cacheAt: 0, typ: new Map() };
 let timer = 0, busy = false, again = false, lastStart = 0;
 
 async function getJSON(url) {
@@ -329,7 +443,7 @@ async function poll() {
   try {
     const st = await getJSON("/api/state");
     Object.assign(S, { st, skew: st.now - Date.now() / 1000, okAt: Date.now(), fails: 0, err: "" });
-    renderState();
+    paint();
     const more = [];
     if (st.history_rev !== S.rev) more.push(loadHistory(st.history_rev), loadCache());
     else if (Date.now() - S.cacheAt > CACHE_MS) more.push(loadCache());
@@ -349,25 +463,21 @@ async function poll() {
 async function loadHistory(rev) {
   S.hist = await getJSON("/api/history");
   S.rev = rev;
-  renderHistory();
-  renderOverview();
-  if (detail && detail.kind === "mac") renderMac(detail);
+  S.typ = typical(Array.isArray(S.hist.jobs) ? S.hist.jobs : []);
+  paint();
 }
 async function loadCache() {
   S.cache = await getJSON("/api/cache");
   S.cacheAt = Date.now();
-  renderCache();
-  if (detail && detail.kind === "mac") renderMac(detail);
+  paint();
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSoon(0); });
 
 setInterval(() => {
-  for (const el of document.querySelectorAll("[data-since]")) el.textContent = mmss(now() - num(el.dataset.since));
-  for (const el of document.querySelectorAll("[data-ago]")) el.textContent = ago(num(el.dataset.ago));
+  const t = now();
+  for (const k in LIVE) for (const el of document.querySelectorAll("[data-" + k + "]")) LIVE[k](el, t);
   renderConn();
 }, 1000);
-
-// --- header ---------------------------------------------------------------------------------------
 
 function renderConn() {
   const down = S.fails > 0;
@@ -379,195 +489,334 @@ function renderConn() {
   if (down && (phase === "updating" || phase === "restarting")) b.textContent = "The hub is restarting on its new version. Reconnecting…";
   else if (down) b.textContent = "Can't reach the hub: " + S.err + ". Retrying every " + Math.round(Math.min(MAX_BACKOFF_MS, POLL_MS * 2 ** (S.fails - 1)) / 1000) + " s.";
 }
-function renderState() {
-  const st = S.st;
-  const hub = st.hub || {};
+
+function typical(jobs) {
+  const by = new Map();
+  for (const j of jobs) {
+    if (j.state !== "done" || !(num(j.started) > 0) || !(num(j.finished) > num(j.started))) continue;
+    const k = pp(j);
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(num(j.finished) - num(j.started));
+  }
+  const out = new Map();
+  for (const [k, xs] of by) {
+    if (xs.length < MIN_SAMPLES) continue;
+    xs.sort((a, b) => a - b);
+    const mid = xs.length >> 1;
+    out.set(k, xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2);
+  }
+  return out;
+}
+function macCode(w, hub) {
+  const refused = w.label === hub.label || (Array.isArray(hub.exclude) && hub.exclude.includes(w.label));
+  return w.state === "online" && refused ? "refused" : show(w.state);
+}
+function agentCode(w) {
+  if (w.update) return w.update_error ? "failed" : "updating";
+  return w.agent_current ? "current" : w.self_update ? "outdated" : "too_old";
+}
+function forecast(queued, macs, typ, aff, t) {
+  const out = new Map();
+  const pool = macs.filter((m) => m.code === "online").map((m) => {
+    const ends = m.cells.filter((c) => c.kind === "job" || c.kind === "ghost").map((c) => {
+      if (c.kind === "ghost") return t;
+      const typical = typ.get(c.proj + "-" + c.plat);
+      if (c.start == null) return typical == null ? Infinity : t + typical;
+      return c.end == null ? Infinity : Math.max(c.end, t);
+    }).sort((a, b) => a - b);
+    const free = [...Array(Math.max(0, m.slots - ends.length)).fill(t), ...ends.slice(Math.max(0, ends.length - m.slots))];
+    return { label: m.label, freeGb: m.freeGb, reports: m.reports, free };
+  });
+  let blocked = null;
+  for (const j of queued) {
+    const id = show(j.id), k = pp(j);
+    if (!j.src) { out.set(id, { kind: "nosrc", cancelAt: Math.round(num(j.created) + SOURCE_TTL) }); continue; }
+    if (blocked) { out.set(id, blocked); continue; }
+    const at = Math.min(...pool.map((m) => m.free.length ? m.free[0] : Infinity));
+    if (at === Infinity) {
+      blocked = { kind: "blocked", why: pool.length ? "waits for a slot: no estimate" : "no Mac takes builds" };
+      out.set(id, blocked);
+      continue;
+    }
+    const cands = pool.filter((m) => m.free.length && m.free[0] <= at && !m.reports.includes(id));
+    if (!cands.length) { out.set(id, { kind: "blocked", why: "a Mac still reports its last run" }); continue; }
+    const pick = cands.find((m) => m.label === aff.get(k)) || cands.reduce((a, b) => (b.freeGb > a.freeGb ? b : a));
+    out.set(id, at > t ? { kind: "at", mac: pick.label, at: Math.round(at) } : { kind: "soon", mac: pick.label });
+    pick.free.shift();
+    const next = typ.has(k) ? at + typ.get(k) : Infinity;
+    const i = pick.free.findIndex((x) => x > next);
+    pick.free.splice(i < 0 ? pick.free.length : i, 0, next);
+  }
+  return out;
+}
+function jobCell(j, typ) {
+  const start = j.state === "building" ? num(j.started) || num(j.created) : null;
+  const typical = typ.get(pp(j));
+  return { kind: "job", id: show(j.id), proj: show(j.proj), plat: show(j.plat), client: show(j.client), state: show(j.state),
+    start, end: start != null && typical != null ? start + typical : null };
+}
+function mac(w, hub, jobs, typ) {
+  const code = macCode(w, hub), info = w.info && typeof w.info === "object" ? w.info : {};
+  const m = { label: show(w.label), code, agent: agentCode(w), version: show(w.version), enabled: !!w.enabled,
+    slots: num(w.slots), used: num(w.used), ramGb: num(w.ram_gb), freeGb: Math.round(num(w.free_gb)),
+    xcode: w.xcode ? show(w.xcode) : "", user: show(w.user), seen: num(w.seen), boot: show(w.boot),
+    reports: (Array.isArray(w.running) ? w.running : []).map(show), updateError: w.update_error ? show(w.update_error) : "",
+    info: Object.keys(info).sort().map((k) => [k, show(info[k])]) };
+  m.why = display(code).why(m, hub);
+  m.cells = jobs.map((j) => jobCell(j, typ));
+  const ids = new Set(m.cells.map((c) => c.id));
+  for (const id of m.reports) if (!ids.has(id)) m.cells.push({ kind: "ghost", id });
+  if (display(code).takes) for (let i = m.cells.length; i < m.slots; i++) m.cells.push({ kind: "free" });
+  else m.cells.push({ kind: "off" });
+  return m;
+}
+const finishedJob = (j) => ({ id: show(j.id), proj: show(j.proj), key: show(j.key), plat: show(j.plat), client: show(j.client),
+  worker: j.worker ? show(j.worker) : "", state: show(j.state), rc: show(j.rc), took: took(j), finished: num(j.finished) });
+
+function derive(S, t, F) {
+  const st = S.st, hub = st.hub && typeof st.hub === "object" ? st.hub : {};
   let host = location.host;
-  try { if (hub.url) host = new URL(hub.url).host; } catch (e) { /* odd url: keep the page's host */ }
-  $("hubname").textContent = host.split(".")[0];
-  $("hubname").title = host;
-  const ws = st.workers || [], act = st.active || [];
-  const online = ws.filter((w) => w.state === "online");
-  const building = act.filter((j) => j.state !== "queued").length;
-  const item = (label, value) => h("span", null, h("b", null, value), " " + label);
-  $("summary").replaceChildren(
-    item("Macs online", online.length + "/" + ws.length),
-    item("slots in use", ws.reduce((a, w) => a + num(w.used), 0) + "/" + ws.filter((w) => w.enabled).reduce((a, w) => a + num(w.slots), 0)),
-    item("building", building),
-    item("queued", act.length - building));
-  renderNavCounts(ws, building, act.length - building);
-  renderMacs(ws);
-  renderActive(act);
-  renderJoin(hub);
-  renderUpdates(st);
-  renderOverview();
-  if (detail && detail.kind === "mac") renderMac(detail);
-  if (detail && detail.kind === "job" && detail.job) renderJobMeta(detail);
-}
-function renderNavCounts(ws, building, queued) {
-  const n = (count, label, dot) => count ? h("span", null, dot ? h("span", { class: "dot " + dot }) : null, count, h("span", { class: "sr" }, " " + label)) : null;
-  NAV_COUNT.get("builds").replaceChildren(...[n(building, "building", "run"), n(queued, "queued", "idle")].filter(Boolean));
-  NAV_COUNT.get("macs").replaceChildren(...[n(ws.filter((w) => w.state === "stale").length, "lost", "bad"),
-    n(ws.filter((w) => w.state === "drained").length, "out of the pool", "out")].filter(Boolean));
-  const rel = S.st.release || {};
-  NAV_COUNT.get("updates").replaceChildren(...[
-    rel.available ? h("span", null, h("span", { class: "dot out" }), h("span", { class: "sr" }, "hub update available")) : null,
-    n(ws.filter((w) => !w.agent_current).length, "agents outdated", "out")].filter(Boolean));
-}
-
-// --- Macs -----------------------------------------------------------------------------------------
-
-function meter(label, used, total, text) {
-  const fill = h("span", { class: used >= total && total > 0 ? "full" : null });
-  fill.style.width = (total > 0 ? Math.min(100, Math.max(0, used / total * 100)) : 0) + "%";
-  return h("div", { class: "meter-row" }, h("span", { class: "muted" }, label), h("div", { class: "meter" }, fill), h("span", null, text));
-}
-function infoLines(i) {
-  i = i && typeof i === "object" ? i : {};
-  const join = (...xs) => xs.filter((x) => x != null && x !== "").map(show).join(" · ");
-  const lines = [
-    i.chip || i.model ? (i.chip && i.model ? show(i.chip) + " (" + show(i.model) + ")" : show(i.chip || i.model)) : "",
-    i.macos ? "macOS " + show(i.macos) : "",
-    join(i.dns, i.tailnet_ip),
-    i.lan_ip ? "LAN " + show(i.lan_if || "?") + " " + show(i.lan_ip) : "",
-    join(i.host ? "host " + show(i.host) : "", i.tailnet ? "tailnet " + show(i.tailnet) : ""),
-  ].filter(Boolean);
-  return lines.length ? h("div", { class: "info" }, lines.map((l) => h("div", null, l))) : null;
-}
-function macCard(w) {
-  const ram = num(w.ram_gb), free = num(w.free_gb);
-  return h("a", { class: "card", href: macHref(w.label) },
-    h("div", { class: "card-head" }, h("strong", { class: "mono" }, show(w.label)), badge(w.state)),
-    meter("Slots", num(w.used), num(w.slots), num(w.used) + "/" + num(w.slots)),
-    meter("RAM", ram - free, ram, Math.round(free) + " GB free of " + ram),
-    kv([["Xcode", w.xcode], ["Agent", agentText(w)], ["User", w.user], ["Heartbeat", agoEl(w.seen)]]),
-    infoLines(w.info));
-}
-function agentText(w) { return show(w.version) + (w.agent_current ? "" : " (outdated)"); }
-function renderMacs(ws) {
-  $("maclist").replaceChildren(...(ws.length ? ws.map(macCard) : [h("div", { class: "empty" }, "No Macs are enabled or sending heartbeats.")]));
+  try { if (hub.url) host = new URL(hub.url).host; } catch (e) {}
+  const act = Array.isArray(st.active) ? st.active : [], ws = Array.isArray(st.workers) ? st.workers : [];
+  const onMac = new Map(), live = {};
+  for (const j of act) {
+    live[show(j.id)] = num(j.waiters);
+    if (j.state === "queued" || !j.worker) continue;
+    if (!onMac.has(j.worker)) onMac.set(j.worker, []);
+    onMac.get(j.worker).push(j);
+  }
+  const macs = ws.map((w) => mac(w, hub, onMac.get(w.label) || [], S.typ));
+  const cache = S.cache || {}, projects = Array.isArray(cache.projects) ? cache.projects : [];
+  const affinity = (Array.isArray(cache.affinity) ? cache.affinity : []).map((a) => ({ proj: show(a.proj), plat: show(a.plat), worker: show(a.worker) }));
+  const aff = new Map(affinity.map((a) => [a.proj + "-" + a.plat, a.worker]));
+  const queuedRaw = act.filter((j) => j.state === "queued");
+  const fc = forecast(queuedRaw, macs, S.typ, aff, t);
+  const queue = queuedRaw.map((j) => ({ id: show(j.id), position: num(j.position), proj: show(j.proj), plat: show(j.plat),
+    client: show(j.client), created: num(j.created), fc: fc.get(show(j.id)) }));
+  const history = (S.hist && Array.isArray(S.hist.jobs) ? S.hist.jobs : []).map(finishedJob);
+  const recent = history.filter((j) => RECENT_STATES.includes(j.state) && j.finished >= t - DAY).slice(0, RECENT_ROWS);
+  const counts = {
+    building: act.length - queuedRaw.length, queued: queuedRaw.length,
+    busy: macs.reduce((a, m) => a + m.used, 0), slots: macs.filter((m) => m.enabled).reduce((a, m) => a + m.slots, 0),
+    failed24: history.filter((j) => j.state === "failed" && j.finished >= t - DAY).length,
+    outdated: macs.filter((m) => AGENT[m.agent].outdated).length,
+  };
+  const release = st.release && typeof st.release === "object" ? st.release : {};
+  const rows = history.filter((j) => (!F.state || j.state === F.state)
+    && FILTERS.every(([, f]) => !F[f] || j[f] === F[f])
+    && (F.window == null || j.finished >= t - F.window)
+    && (!F.q || ["id", "proj", "key", "client", "worker"].some((f) => j[f].toLowerCase().includes(F.q))));
+  const options = {};
+  for (const [, f] of FILTERS) {
+    const vals = [...new Set(history.map((j) => j[f]))].filter((v) => v && v !== "-").sort();
+    if (F[f] && !vals.includes(F[f])) vals.push(F[f]);
+    options[f] = vals;
+  }
+  const M = { now: t, host, hub, macs, queue, history, recent, counts, release, agent: show(st.agent), live,
+    shown: { rows: rows.slice(0, HISTORY_ROWS), count: rows.length + " of " + history.length + (rows.length > HISTORY_ROWS ? " (showing " + HISTORY_ROWS + ")" : ""), loaded: !!S.hist },
+    filters: F, options, cache: projects, affinity, cacheBytes: projects.reduce((a, p) => a + num(p.size), 0),
+    typ: Object.fromEntries(S.typ), alerts: [] };
+  M.alerts = ALERTS.flatMap((f) => f(M));
+  return M;
 }
 
-// --- running and queue ----------------------------------------------------------------------------
+const NAV = new Map(), NAV_COUNT = new Map();
+let REGIONS = [];
 
-function runningTable(act) {
-  return table(
-    [["Job"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["State"], ["Time", "num"]],
-    act.filter((j) => j.state !== "queued").map((j) => clickRow(jobHref(j.id), [
-      h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
-      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", null, badge(j.state)),
-      h("td", { class: "num" }, since(j.started || j.created))])),
-    "Nothing is building.");
+function buildRegions() {
+  REGIONS = [
+    { el: $("hubname"),      slice: (M) => M.host,                   render: (host) => h("span", { title: host }, host.split(".")[0]) },
+    { el: $("summary"),      slice: (M) => M.alerts,                 render: alertChips },
+    ...VIEWS.map((v) => ({ el: NAV_COUNT.get(v.id), slice: v.count, render: countDots })),
+    { el: $("board-lanes"),  slice: (M) => ({ macs: M.macs.map(glance), busy: M.counts.busy, slots: M.counts.slots }), render: lanes },
+    { el: $("board-queue"),  slice: (M) => M.queue,                  render: queueList },
+    { el: $("board-recent"), slice: (M) => ({ rows: M.recent, failed: M.counts.failed24, loaded: !!M.history.length || M.shown.loaded }), render: recentList },
+    ...FILTERS.map(([id, field, all]) => ({ el: $(id), slice: (M) => ({ all, cur: M.filters[field], vals: M.options[field] }), render: options })),
+    { el: $("f-count"),      slice: (M) => M.shown.count,            render: (c) => c },
+    { el: $("histlist"),     slice: (M) => M.shown,                  render: historyTable },
+    { el: $("fleet-banner"), slice: bannerSlice,                     render: banner },
+    { el: $("maclist"),      slice: (M) => M.macs.map(glance),       render: cards },
+    { el: $("up-hub"),       slice: (M) => M.release,                render: (rel) => rel.source === null ? hubUpdatesOff() : hubUpdates(rel) },
+    { el: $("join"),         slice: (M) => M.hub,                    render: join },
+    { el: $("cachelist"),    slice: (M) => M.cache,                  render: cacheList },
+    { el: $("afflist"),      slice: (M) => M.affinity,               render: affTable },
+  ];
 }
-function renderActive(act) {
-  const queued = act.filter((j) => j.state === "queued");
-  $("running").replaceChildren(runningTable(act));
-  $("queue").replaceChildren(table(
-    [["#", "num"], ["Job"], ["Project"], ["Plat."], ["Client"], ["Waiting", "num"], [""]],
-    queued.map((j) => clickRow(jobHref(j.id), [
-      h("td", { class: "num" }, show(j.position)), h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))),
-      h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)),
-      h("td", { class: "num" }, since(j.created)), h("td", null, j.src ? "" : badge("nosrc"))])),
-    "The queue is empty."));
+function readFilters() {
+  const when = $("f-when").querySelector("input:checked");
+  return { q: $("f-q").value.trim().toLowerCase(), state: $("f-state").value, plat: $("f-plat").value, worker: $("f-mac").value,
+    client: $("f-client").value, window: when && when.value ? num(when.value) : null };
 }
-
-// --- overview -------------------------------------------------------------------------------------
-
-function renderOverview() {
+function focusMark(el) {
+  const a = document.activeElement;
+  if (!a || a === el || !el.contains(a)) return null;
+  const href = a.getAttribute("href");
+  if (href) return { href };
+  if (a.tagName !== "BUTTON") return null;
+  const scope = a.closest("[data-id]");
+  return { id: scope ? scope.dataset.id : null, text: a.textContent };
+}
+function refocus(el, f) {
+  let n = null;
+  if (f.href) n = el.querySelector('[href="' + CSS.escape(f.href) + '"]');
+  else {
+    const scope = f.id == null ? el : el.querySelector('[data-id="' + CSS.escape(f.id) + '"]');
+    n = scope && [...scope.querySelectorAll("button")].find((b) => b.textContent === f.text);
+  }
+  if (n) n.focus();
+}
+function paint() {
   if (!S.st) return;
-  const ws = S.st.workers || [], act = S.st.active || [];
-  $("ov-fleet").replaceChildren(table(
-    [["Mac"], ["State"], ["Slots", "num"], ["RAM free", "num"], ["Heartbeat"]],
-    ws.map((w) => clickRow(macHref(w.label), [
-      h("td", null, macLink(w.label)), h("td", null, badge(w.state)), h("td", { class: "num" }, num(w.used) + "/" + num(w.slots)),
-      h("td", { class: "num" }, Math.round(num(w.free_gb)) + " GB"), h("td", null, agoEl(w.seen))])),
-    "No Macs are enabled or sending heartbeats."));
-  $("ov-running").replaceChildren(runningTable(act));
-  const queued = act.filter((j) => j.state === "queued").length;
-  $("ov-queued").hidden = !queued;
-  $("ov-queued").firstChild.textContent = queued + " queued";
-  const failed = ((S.hist && S.hist.jobs) || []).filter((j) => j.state === "failed" && num(j.finished) >= now() - 86400).slice(0, 5);
-  $("ov-failures").replaceChildren(table(
-    [["Finished"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["rc", "num"]],
-    failed.map((j) => clickRow(jobHref(j.id), [
-      h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
-      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", { class: "num" }, show(j.rc))])),
-    S.hist ? "No failures in the last 24 h." : "Loading…"));
-}
-$("ov-all-failures").addEventListener("click", () => { $("f-state").value = "failed"; renderHistory(); });
-
-// --- history --------------------------------------------------------------------------------------
-
-const FILTERS = [["f-plat", "plat", "all platforms"], ["f-mac", "worker", "all Macs"], ["f-client", "client", "all clients"]];
-for (const id of ["f-q", "f-state", ...FILTERS.map((f) => f[0])]) $(id).addEventListener("input", renderHistory);
-
-function syncOptions(sel, values, all) {
-  const cur = sel.value;
-  const want = [...new Set(values.filter((v) => v != null).map(String))].sort();
-  if (cur && !want.includes(cur)) want.push(cur);
-  const key = JSON.stringify(want);
-  if (sel.dataset.key === key) return;
-  sel.dataset.key = key;
-  sel.replaceChildren(h("option", { value: "" }, all), ...want.map((v) => h("option", { value: v }, v)));
-  sel.value = cur;
-}
-function renderHistory() {
-  const jobs = (S.hist && S.hist.jobs) || [];
-  for (const [id, field, all] of FILTERS) syncOptions($(id), jobs.map((j) => j[field]), all);
-  const q = $("f-q").value.trim().toLowerCase(), st = $("f-state").value;
-  const pick = FILTERS.map(([id, field]) => [field, $(id).value]).filter(([, v]) => v);
-  const shown = jobs.filter((j) => (!st || j.state === st)
-    && pick.every(([f, v]) => String(j[f]) === v)
-    && (!q || ["id", "proj", "key", "client", "worker"].some((f) => j[f] != null && String(j[f]).toLowerCase().includes(q))));
-  $("f-count").textContent = shown.length + " of " + jobs.length + (shown.length > HISTORY_ROWS ? " (showing " + HISTORY_ROWS + ")" : "");
-  $("histlist").replaceChildren(table(
-    [["Finished"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["Duration", "num"], ["rc", "num"], ["State"]],
-    shown.slice(0, HISTORY_ROWS).map((j) => clickRow(jobHref(j.id), [
-      h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))), h("td", null, show(j.proj)), h("td", null, show(j.plat)),
-      h("td", null, show(j.client)), h("td", null, macLink(j.worker)), h("td", { class: "num" }, took(j)),
-      h("td", { class: "num" }, show(j.rc)), h("td", null, badge(j.state))])),
-    S.hist ? "No finished job matches." : "Loading…"));
+  const M = derive(S, now(), readFilters());
+  for (const r of [...REGIONS, ...(detail ? detail.regions : [])]) {
+    const s = r.slice(M), key = JSON.stringify(s);
+    if (key === r.key) continue;
+    r.key = key;
+    const f = focusMark(r.el);
+    r.el.replaceChildren(...[r.render(s)].flat(Infinity).filter(Boolean));
+    if (f) refocus(r.el, f);
+  }
 }
 
-// --- cache, affinity and joining a Mac ------------------------------------------------------------
-
+function alertChips(alerts) {
+  if (!alerts.length) return h("span", { class: "muted" }, "No alerts");
+  return [alerts.map((a) => h("a", { class: "chip " + a.tone, href: a.href }, a.text, a.ago ? [" ", agoEl(a.ago)] : null)),
+    h("a", { class: "chip alerts-n " + alerts[0].tone, href: "#/fleet" }, alerts.length + (alerts.length === 1 ? " alert" : " alerts"))];
+}
+function countDots(items) {
+  return items.map(([count, label, dot]) => count ? h("span", null, dot ? h("span", { class: "dot " + dot }) : null, count, h("span", { class: "sr" }, " " + label)) : null);
+}
+function glance(m) {
+  return { label: m.label, code: m.code, agent: m.agent, enabled: m.enabled, slots: m.slots, used: m.used, freeGb: m.freeGb,
+    ramGb: m.ramGb, xcode: m.xcode, seen: m.code === "stale" ? m.seen : 0, updateError: m.updateError, cells: m.cells };
+}
+function macNote(m) {
+  return [STATE_TEXT[m.code] || m.code, m.code === "stale" ? [" · lost ", agoEl(m.seen)] : null, " · ",
+    display(m.code).action === "enable" ? h("button", { type: "button", on: { click: () => enableMac(m) } }, "Enable")
+                                        : h("a", { href: macHref(m.label) }, "Why")];
+}
+function cell(c, m) {
+  if (c.kind === "job") return h("div", { class: "cell job", "data-id": c.id, on: { click: goOnClick(jobHref(c.id)) } },
+    h("div", { class: "who" }, h("a", { href: jobHref(c.id) }, h("b", null, c.proj)), " ", h("span", { class: "plat" }, c.plat), " ", h("span", { class: "muted" }, c.client)),
+    c.end != null ? meter(c.start, c.end) : null,
+    h("div", { class: "line2" }, c.start == null ? h("span", null, badge(c.state), " · starting")
+      : h("span", null, since(c.start), c.end != null ? [" · ", live("left", c.end)] : null)));
+  if (c.kind === "ghost") return h("div", { class: "cell ghost" }, "finishing a cancelled run");
+  if (c.kind === "free") return h("div", { class: "cell free" }, "free");
+  return h("div", { class: "cell off" }, macNote(m));
+}
+function lane(m) {
+  return h("div", { class: "lane", "data-id": m.label },
+    h("div", { class: "lane-who" }, h("div", null, macLink(m.label)), " ",
+      h("div", { class: "muted mono" }, badge(m.code), display(m.code).takes ? " · " + m.freeGb + " GB free" + (m.xcode ? " · Xcode " + m.xcode : "") : null)),
+    h("div", { class: "cells" }, m.cells.map((c) => cell(c, m))));
+}
+function lanes(s) {
+  return [h("h3", null, "Macs · " + s.busy + " of " + s.slots + " slots busy"),
+    s.macs.length ? h("div", { class: "lanes" }, s.macs.map(lane)) : h("div", { class: "empty" }, "No Macs are enabled or sending heartbeats.")];
+}
+function queueItem(q) {
+  const f = q.fc;
+  return h("li", { "data-id": q.id, on: { click: goOnClick(jobHref(q.id)) } },
+    h("div", { class: "who" }, h("span", { class: "muted mono" }, q.position + " ·"), " ", h("a", { href: jobHref(q.id) }, h("b", null, q.proj)), " ",
+      h("span", { class: "plat" }, q.plat), " ", h("span", { class: "muted" }, q.client)),
+    " ",
+    h("div", { class: "line2" }, h("span", null, "waiting ", since(q.created)), " ",
+      f.kind === "at" ? h("span", null, "starts ", live("until", f.at), " on ", macLink(f.mac))
+      : f.kind === "soon" ? h("span", null, "starts soon on ", macLink(f.mac))
+      : f.kind === "nosrc" ? h("span", null, badge("nosrc"), " · cancelled ", live("until", f.cancelAt), " if none")
+      : h("span", null, f.why)));
+}
+function queueList(queue) {
+  return [h("h3", null, "Queue · " + queue.length + " waiting"),
+    queue.length ? [h("p", { class: "est" }, "Start times are estimates from typical build times."), h("ol", { class: "items" }, queue.map(queueItem))]
+      : h("div", { class: "empty" }, "The queue is empty.")];
+}
+function recentList(s) {
+  return [h("h3", null, "Last 24 h" + (s.failed ? " · " + s.failed + " failed" : "")),
+    s.rows.length ? h("ol", { class: "items" }, s.rows.map((j) => h("li", { "data-id": j.id, on: { click: goOnClick(jobHref(j.id)) } },
+      h("div", { class: "who" }, h("a", { href: jobHref(j.id) }, h("b", null, j.proj)), " ", h("span", { class: "plat" }, j.plat), " ",
+        h("span", { class: "muted" }, j.client + (j.worker ? " · " + j.worker : ""))),
+      " ",
+      h("div", { class: "line2" }, h("span", null, badge(j.state), " ", j.state === "failed" ? "rc " + j.rc : j.took), " ", h("span", null, when(j.finished))))))
+      : h("div", { class: "empty" }, s.loaded ? "Nothing finished in the last 24 h." : "Loading…")];
+}
+function options(s) { return [h("option", { value: "" }, s.all), ...s.vals.map((v) => h("option", { value: v, selected: v === s.cur }, v))]; }
+function historyTable(s) {
+  return table([["Finished"], ["Project"], ["Plat."], ["Client"], ["Mac"], ["Duration", "num"], ["rc", "num"], ["State"]],
+    s.rows.map((j) => clickRow(jobHref(j.id), [
+      h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))), h("td", null, j.proj), h("td", null, j.plat),
+      h("td", null, j.client), h("td", null, macLink(j.worker)), h("td", { class: "num" }, j.took),
+      h("td", { class: "num" }, j.rc), h("td", null, badge(j.state))])),
+    s.loaded ? "No finished job matches." : "Loading…");
+}
+function bannerSlice(M) {
+  const rel = M.release, remote = rel.remote && typeof rel.remote === "object" ? rel.remote : {};
+  return { available: !!rel.available, phase: show(rel.phase), commit: short(remote.commit), subject: show(remote.subject),
+    outdated: M.counts.outdated, agent: M.agent,
+    canUpdate: M.macs.filter((m) => AGENT[m.agent].canUpdate).map((m) => ({ label: m.label, used: m.used })) };
+}
+function banner(s) {
+  const idle = s.phase === "idle";
+  return [s.available ? h("p", null, h("span", null, "Hub update available · ", h("span", { class: "mono" }, s.commit), " ", s.subject), " ",
+      idle ? null : [h("span", { class: "hint" }, PHASE_TEXT[s.phase] || s.phase), " "],
+      h("button", { type: "button", disabled: !idle, on: { click: () => updateHub(s.commit, s.subject) } }, "Update hub")) : null,
+    s.outdated ? h("p", null, h("span", null, s.outdated + (s.outdated === 1 ? " agent" : " agents") + " outdated · the hub hands out ", h("span", { class: "mono" }, s.agent)), " ",
+      h("button", { type: "button", disabled: !s.canUpdate.length, on: { click: () => updateAgents(s.canUpdate, s.agent) } },
+        "Update all outdated (" + s.canUpdate.length + ")")) : null];
+}
+function card(m) {
+  const a = AGENT[m.agent], jobs = m.cells.filter((c) => c.kind === "job");
+  return h("div", { class: "card", "data-id": m.label, on: { click: goOnClick(macHref(m.label)) } },
+    h("div", { class: "card-head" }, h("a", { class: "mono", href: macHref(m.label) }, h("strong", null, m.label)), " ", badge(m.code)),
+    " ",
+    h("div", { class: "card-line" }, display(m.code).takes
+      ? [m.used + "/" + m.slots + " slots · " + m.freeGb + " GB free" + (m.xcode ? " · Xcode " + m.xcode : ""),
+         jobs.length ? " · building " + jobs.map((c) => c.proj + " " + c.plat).join(", ") : null]
+      : macNote(m)),
+    a.note ? [" ", h("div", { class: "card-line" }, a.note(m))] : null);
+}
+function cards(macs) { return macs.length ? macs.map(card) : h("div", { class: "empty" }, "No Macs are enabled or sending heartbeats."); }
 function cacheHref(proj, name) { return "/cache/" + enc(String(proj)) + "/" + enc(String(name)); }
 const PLAT_TEXT = { ios: "iOS", android: "Android" };
 function artifact(name) {
   const m = /^(.+)-(ios|android)\.(app\.tar\.gz|apk)$/.exec(String(name));
   return m ? { ver: m[1], plat: PLAT_TEXT[m[2]] } : { ver: String(name), plat: "-" };
 }
-function renderCache() {
-  const c = S.cache || {}, projects = c.projects || [], aff = c.affinity || [];
-  $("cachelist").replaceChildren(projects.length ? h("div", { class: "tablewrap" }, h("table", { class: "cache" },
+const CACHE_COLS = ["Version", "Platform", "Size", "Last used", ""];
+function cacheList(projects) {
+  if (!projects.length) return h("div", { class: "empty" }, "The cache is empty. Each successful build adds its artifact here.");
+  return h("div", { class: "tablewrap" }, h("table", { class: "cache" },
     h("colgroup", null, h("col"), h("col", { class: "c-plat" }), h("col", { class: "c-size" }), h("col", { class: "c-used" }), h("col", { class: "c-act" })),
-    h("thead", null, h("tr", null, h("th", null, "Version"), h("th", { class: "opt" }, "Platform"), h("th", { class: "num" }, "Size"),
-      h("th", { class: "opt" }, "Last used"), h("th", null, h("span", { class: "sr" }, "Actions")))),
+    h("thead", null, h("tr", null, h("th", null, "Version"), h("th", null, "Platform"), h("th", { class: "num" }, "Size"),
+      h("th", null, "Last used"), h("th", null, h("span", { class: "sr" }, "Actions")))),
     projects.map((p) => {
-      const n = (p.files || []).length;
+      const files = Array.isArray(p.files) ? p.files : [], n = files.length;
       return h("tbody", { class: "proj", "data-proj": String(p.proj) },
-        h("tr", { class: "proj-head" },
+        stamp([h("tr", { class: "proj-head" },
           h("th", { colspan: 4, scope: "rowgroup" }, h("span", { class: "mono" }, show(p.proj)),
             h("span", { class: "muted" }, n + " version" + (n === 1 ? "" : "s") + ", " + bytes(p.size))),
-          h("td", null, h("button", { type: "button", class: "quiet danger", on: { click: () => deleteProject(p) } }, "Clear cache"))),
-        (p.files || []).map((f) => {
+          h("td", null, h("button", { type: "button", class: "quiet danger", on: { click: () => deleteProject(p) } }, "Clear cache")))], []),
+        stamp(files.map((f) => {
           const a = artifact(f.name);
           return h("tr", { class: "file", "data-file": String(f.name) },
-            h("td", { class: "mono ver", title: String(f.name) }, a.ver), h("td", { class: "opt" }, a.plat),
-            h("td", { class: "num" }, bytes(f.size)), h("td", { class: "opt" }, when(f.mtime)),
+            h("td", { class: "mono ver", title: String(f.name) }, a.ver), h("td", null, a.plat),
+            h("td", { class: "num" }, bytes(f.size)), h("td", null, when(f.mtime)),
             h("td", null, h("a", { class: "quiet", href: cacheHref(p.proj, f.name), download: String(f.name) }, "Download"),
               h("button", { type: "button", class: "quiet danger", "aria-label": "Invalidate " + f.name, on: { click: () => invalidateArtifact(p.proj, f.name) } }, "Invalidate")));
-        }));
-    }))) : h("div", { class: "empty" }, "The cache is empty. Each successful build adds its artifact here."));
-  $("afflist").replaceChildren(table([["Project"], ["Plat."], ["Mac"]],
-    aff.map((a) => h("tr", null, h("td", { class: "mono" }, show(a.proj)), h("td", null, show(a.plat)), h("td", null, macLink(a.worker)))),
-    "No affinity yet: it is recorded with each successful build."));
+        }), CACHE_COLS));
+    })));
+}
+function affTable(aff) {
+  return table([["Project"], ["Plat."], ["Mac"]],
+    aff.map((a) => h("tr", null, h("td", { class: "mono" }, a.proj), h("td", null, a.plat), h("td", null, macLink(a.worker)))),
+    "No affinity yet: it is recorded with each successful build.");
 }
 async function copy(code) {
   const text = code.textContent;
   try {
     if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); toast("Copied."); return; }
-  } catch (e) { /* no permission: fall back to the selection method */ }
+  } catch (e) {}
   const r = document.createRange();
   r.selectNodeContents(code);
   const sel = getSelection();
@@ -581,55 +830,31 @@ function cmd(text) {
   const code = h("code", null, text);
   return h("div", { class: "cmd" }, code, h("button", { type: "button", on: { click: () => copy(code) } }, "Copy"));
 }
-function renderJoin(hub) {
-  const key = JSON.stringify(hub);
-  if (key === S.joinKey) return;
-  S.joinKey = key;
-  let short = "";
-  try { short = hub.url ? new URL(hub.url).hostname.split(".")[0] : ""; } catch (e) { short = ""; }
+function join(hub) {
+  let name = "";
+  try { name = hub.url ? new URL(hub.url).hostname.split(".")[0] : ""; } catch (e) { name = ""; }
   const port = show(hub.tailnet_port);
   const excluded = Array.isArray(hub.exclude) ? hub.exclude.map(show) : [];
   const refused = (hub.label ? "The hub itself (" + show(hub.label) + ")" : "The hub itself") +
     (excluded.length ? " and " + excluded.join(", ") + ", in the hub's exclude setting, refuse" : " refuses") + " to join.";
-  $("join").replaceChildren(...[
+  return [
     h("p", { class: "note" }, "On the new Mac, as the user that will build, paste one of these into Terminal:"),
     hub.ip ? cmd("curl -fsSL http://" + show(hub.ip) + ":" + port + "/join | bash") : h("p", { class: "hint" }, "The hub doesn't know its tailnet IP yet."),
-    short ? cmd("curl -fsSL http://" + short + ":" + port + "/join | bash -s -- --slots 2") : null,
+    name ? cmd("curl -fsSL http://" + name + ":" + port + "/join | bash -s -- --slots 2") : null,
     h("p", { class: "note" }, "From a client, over Tailscale SSH as root (slots are optional; the default is 1 per 24 GB of RAM):"),
     cmd("cider-build add <mac> [slots]"),
     cmd("cider-build remove <mac>"),
-    h("p", { class: "note" }, "Xcode must already be installed on the Mac, because it asks for an Apple ID. " + refused)].filter(Boolean));
+    h("p", { class: "note" }, "Xcode must already be installed on the Mac, because it asks for an Apple ID. " + refused)];
 }
-
-// --- updates: the hub from its git repository (if it has one), the agents from the hub -----------
 
 const PHASE_TEXT = { checking: "checking for updates…", updating: "validating and test-starting the new version…",
   restarting: "restarting on the new version: the panel reconnects by itself" };
 const AUTH_ERROR = /permission denied|publickey|could not read from remote|host key|authenticat/i;
-function short(sha) { return sha ? String(sha).slice(0, 12) : null; }
-function canUpdateAgent(w) { return !w.agent_current && w.self_update && !w.update; }
-function renderUpdates(st) {
-  const rel = st.release || {}, ws = st.workers || [];
-  const key = JSON.stringify([rel, st.agent, ws.map((w) => [w.label, w.version, w.state, w.agent_current, w.self_update, w.update, w.update_error, w.used])]);
-  if (key === S.updatesKey) return;
-  S.updatesKey = key;
-  $("up-hub").replaceChildren(rel.source === null ? hubUpdatesOff() : hubUpdates(rel));
-
-  const outdated = ws.filter(canUpdateAgent);
-  $("up-agents").replaceChildren(
-    h("p", { class: "note" }, "The hub hands out agent ", h("span", { class: "mono" }, show(st.agent)),
-      ". A Mac asked to update takes no new builds, finishes the ones it has, then downloads it and restarts."),
-    h("div", { class: "toolbar" }, h("button", { type: "button", disabled: !outdated.length, on: { click: () => updateAgents(outdated, st.agent) } },
-      "Update all outdated (" + outdated.length + ")")),
-    table([["Mac"], ["Agent"], ["State"], [""]], ws.map((w) => h("tr", null,
-      h("td", null, macLink(w.label)), h("td", { class: "mono" }, agentText(w)), h("td", null, badge(w.state)),
-      h("td", null, agentAction(w, st.agent)))), "No Macs are enabled or sending heartbeats."));
-}
 function hubUpdatesOff() {
   return h("div", null,
     h("p", { class: "note" }, "Hub updates are off: this hub has no update source. To update it from a git repository (this project's, or your fork), run this on the hub as the user that runs it:"),
     cmd("bash ~/cider-build/bin/install.sh hub --set update_url=<git URL>"),
-    h("p", { class: "hint" }, "Agents still update from the hub, below."));
+    h("p", { class: "hint" }, "Agents still update from the hub."));
 }
 function hubUpdates(rel) {
   const src = rel.source || {}, branch = src.branch ? show(src.branch) : "the branch"; // a hub older than hub.json sends no source
@@ -648,8 +873,7 @@ function hubUpdates(rel) {
       cmd(rel.deploy_key)] :
       h("p", { class: "note" }, "The hub has no SSH key for its update source. On the hub, run bash ~/cider-build/bin/install.sh hub again: for an ssh update_url it creates one and prints it. Or set update_ssh_key in the hub's hub.json.")) : null,
     h("div", { class: "toolbar" },
-      h("button", { type: "button", disabled: !idle, on: { click: () => act("Check for updates", "POST", "/hub/check") } }, "Check for updates"),
-      h("button", { type: "button", disabled: !(idle && rel.available), on: { click: () => updateHub(rel) } }, "Update hub")),
+      h("button", { type: "button", disabled: !idle, on: { click: () => act("Check for updates", "POST", "/hub/check") } }, "Check for updates")),
     changelog(rel, branch));
 }
 function changelog(rel, branch) {
@@ -664,14 +888,6 @@ function changelog(rel, branch) {
       h("td", null, when(c.time)),
       h("td", null, c.installed == null ? "-" : c.installed ? h("span", { class: "hint" }, "installed") : h("span", { class: "badge b-pending" }, "pending")))), "")];
 }
-function agentAction(w, agent) {
-  if (w.update) return w.update_error ? h("span", { class: "err" }, "updating: " + show(w.update_error)) : h("span", { class: "hint" }, "updating");
-  if (w.agent_current) return h("span", { class: "hint" }, "current");
-  if (!w.self_update) return h("span", { class: "hint" }, "run cider-build add " + show(w.label) + " once");
-  return h("button", { type: "button", on: { click: () => updateAgent(w, agent) } }, "Update agent");
-}
-
-// --- actions: always confirmed --------------------------------------------------------------------
 
 function toast(msg, bad) {
   const t = h("div", { class: "toast" + (bad ? " bad" : "") }, msg);
@@ -704,10 +920,10 @@ async function act(what, method, url) {
   if (detail && detail.kind === "job") refreshJob(detail);
 }
 async function cancelJob(j, waiting) {
-  const ok = await confirmAction("Cancel job " + show(j.id),
-    [show(j.proj) + " · " + show(j.plat) + " · client " + show(j.client) + (j.worker ? " · on " + show(j.worker) : ""),
+  const ok = await confirmAction("Cancel job " + j.id,
+    [j.proj + " · " + j.plat + " · client " + j.client + (j.worker ? " · on " + j.worker : ""),
      "It is cancelled for every client waiting on it (" + waiting + "). Their cider-build exits with \"The build was cancelled on the hub.\"",
-     j.state === "queued" ? "It leaves the queue and never reaches a Mac." : "The agent on " + show(j.worker) + " stops the build and frees the slot."],
+     j.state === "queued" ? "It leaves the queue and never reaches a Mac." : "The agent on " + j.worker + " stops the build and frees the slot."],
     "Cancel job");
   if (ok) act("Cancel " + j.id, "POST", "/detach?job=" + enc(j.id) + "&all=1");
 }
@@ -735,153 +951,153 @@ async function deleteProject(p) {
     "Clear cache");
   if (ok) dropCache("Clear cache of " + p.proj, "/cache/" + enc(String(p.proj)));
 }
-async function updateHub(rel) {
-  const ok = await confirmAction("Update the hub to " + short((rel.remote || {}).commit),
-    [show((rel.remote || {}).subject),
+async function updateHub(commit, subject) {
+  const ok = await confirmAction("Update the hub to " + commit,
+    [subject,
      "The hub downloads it, checks that it compiles and test-starts it on the side. If anything fails it stays as it is and shows the error.",
      "Then it restarts on the new files once the downloads and uploads in flight finish. Builds on the Macs keep running and waiting clients keep polling; the panel reconnects by itself.",
      "The previous files stay in ~/cider-build/bin/.previous on the hub."],
     "Update hub");
   if (ok) act("Update hub", "POST", "/hub/update");
 }
-function agentBody(ws, agent) {
-  return [(ws.length === 1 ? "It takes" : "Each Mac takes") + " no new builds, finishes the ones it is running (" + ws.reduce((a, w) => a + num(w.used), 0) + " now), then downloads agent " + show(agent) + " from the hub, checks it and restarts.",
+function agentBody(ms, agent) {
+  return [(ms.length === 1 ? "It takes" : "Each Mac takes") + " no new builds, finishes the ones it is running (" + ms.reduce((a, m) => a + m.used, 0) + " now), then downloads agent " + agent + " from the hub, checks it and restarts.",
     "Queued builds go to other Macs meanwhile. If a download fails, the Mac keeps its agent, shows the error here and retries every minute."];
 }
-async function updateAgent(w, agent) {
-  if (await confirmAction("Update the agent on " + show(w.label), agentBody([w], agent), "Update agent")) {
-    act("Update " + w.label, "POST", "/workers/" + enc(w.label) + "/update");
+async function updateAgent(m, agent) {
+  if (await confirmAction("Update the agent on " + m.label, agentBody([m], agent), "Update agent")) {
+    act("Update " + m.label, "POST", "/workers/" + enc(m.label) + "/update");
   }
 }
-async function updateAgents(ws, agent) {
-  if (!(await confirmAction("Update " + ws.length + " agent" + (ws.length === 1 ? "" : "s"), [ws.map((w) => w.label).join(", "), ...agentBody(ws, agent)], "Update all"))) return;
+async function updateAgents(ms, agent) {
+  if (!(await confirmAction("Update " + ms.length + " agent" + (ms.length === 1 ? "" : "s"), [ms.map((m) => m.label).join(", "), ...agentBody(ms, agent)], "Update all"))) return;
   const bad = [];
-  for (const w of ws) {
+  for (const m of ms) {
     try {
-      const r = await fetch("/workers/" + enc(w.label) + "/update", { method: "POST", cache: "no-store" });
-      if (!r.ok) bad.push(w.label + ": " + ((await r.text()).trim() || "HTTP " + r.status));
+      const r = await fetch("/workers/" + enc(m.label) + "/update", { method: "POST", cache: "no-store" });
+      if (!r.ok) bad.push(m.label + ": " + ((await r.text()).trim() || "HTTP " + r.status));
     } catch (e) {
-      bad.push(w.label + ": can't reach the hub (" + e.message + ")");
+      bad.push(m.label + ": can't reach the hub (" + e.message + ")");
     }
   }
-  toast("Update all: " + (ws.length - bad.length) + " updating" + (bad.length ? "; " + bad.join("; ") : ""), bad.length > 0);
+  toast("Update all: " + (ms.length - bad.length) + " updating" + (bad.length ? "; " + bad.join("; ") : ""), bad.length > 0);
   pollSoon(0);
 }
-function defaultSlots(w) { return Math.max(1, Math.floor(num(w.ram_gb) / 24)); }
-async function setSlots(w, n) {
-  const ok = await confirmAction("Change slots on " + show(w.label),
-    ["From " + num(w.slots) + " to " + n + " slots: it takes up to " + n + " builds at once.",
-     num(w.used) > n ? "It has " + num(w.used) + " running: they finish, but it takes no more until it drops below " + n + "." : "Running builds are not affected."],
+function defaultSlots(ramGb) { return Math.max(1, Math.floor(ramGb / 24)); }
+async function setSlots(m, n) {
+  const ok = await confirmAction("Change slots on " + m.label,
+    ["From " + m.slots + " to " + n + " slots: it takes up to " + n + " builds at once.",
+     m.used > n ? "It has " + m.used + " running: they finish, but it takes no more until it drops below " + n + "." : "Running builds are not affected."],
     "Change to " + n);
-  if (ok) act("Slots on " + w.label, "PUT", "/workers/" + enc(w.label) + "?slots=" + n);
+  if (ok) act("Slots on " + m.label, "PUT", "/workers/" + enc(m.label) + "?slots=" + n);
 }
-async function dropMac(w) {
-  const ok = await confirmAction("Disable " + show(w.label),
-    ["It stops taking new builds. The " + num(w.used) + " it has running will finish.",
-     "The agent stays installed: to remove it from the Mac, run cider-build remove " + show(w.label) + " from a client."],
+async function dropMac(m) {
+  const ok = await confirmAction("Disable " + m.label,
+    ["It stops taking new builds. The " + m.used + " it has running will finish.",
+     "The agent stays installed: to remove it from the Mac, run cider-build remove " + m.label + " from a client."],
     "Disable");
-  if (ok) act("Disable " + w.label, "DELETE", "/workers/" + enc(w.label));
+  if (ok) act("Disable " + m.label, "DELETE", "/workers/" + enc(m.label));
 }
-async function enableMac(w) {
-  const n = num(w.slots);
-  const ok = await confirmAction("Enable " + show(w.label),
-    [n ? "With its previous " + n + " slots." : "With the default slots: 1 per 24 GB of RAM (" + defaultSlots(w) + ").",
+async function enableMac(m) {
+  const n = m.slots;
+  const ok = await confirmAction("Enable " + m.label,
+    [n ? "With its previous " + n + " slots." : "With the default slots: 1 per 24 GB of RAM (" + defaultSlots(m.ramGb) + ").",
      "It takes builds again as soon as it is online."],
     "Enable");
-  if (ok) act("Enable " + w.label, "PUT", "/workers/" + enc(w.label) + "?slots=" + n);
+  if (ok) act("Enable " + m.label, "PUT", "/workers/" + enc(m.label) + "?slots=" + n);
 }
 
-// --- views and routes: #/<view> and #/<view>/(job|mac)/<id> ---------------------------------------
-
-const VIEWS = [
-  { id: "overview", group: null,     label: "Overview",         legacy: [] },
-  { id: "macs",     group: "Fleet",  label: "Macs",             legacy: ["macs"] },
-  { id: "add",      group: "Fleet",  label: "Add a Mac",        legacy: ["unir"] },
-  { id: "updates",  group: "Fleet",  label: "Updates",          legacy: [] },
-  { id: "builds",   group: "Builds", label: "Running & queue",  legacy: ["trabajos"] },
-  { id: "history",  group: "Builds", label: "History",          legacy: ["historial"] },
-  { id: "cache",    group: "Builds", label: "Cache & affinity", legacy: ["cache"] },
-];
-const VIEW_BY_ID = new Map(VIEWS.map((v) => [v.id, v]));
-const VIEW_BY_LEGACY = new Map(VIEWS.flatMap((v) => v.legacy.map((a) => [a, v.id])));
-const NAV = new Map(), NAV_COUNT = new Map();
-
-// #job/<id> and #mac/<label> don't name a view: links emit them, so the detail opens over the view already shown.
 function parseHash(hash, current) {
-  const at = (view, kind, raw) => {
-    if (!kind) return { view, detail: null };
-    try { return { view, detail: { kind, id: decodeURIComponent(raw) } }; } catch (e) { return { view, detail: null }; }
+  const detailOf = (kind, raw) => {
+    if (!kind) return null;
+    try { return { kind, id: decodeURIComponent(raw) }; } catch (e) { return null; }
   };
   let m = /^#\/([^/]+)(?:\/(job|mac)\/(.+))?$/.exec(hash);
-  if (m && VIEW_BY_ID.has(m[1])) return at(m[1], m[2], m[3]);
+  if (m && VIEW_BY_NAME.has(m[1])) { const v = VIEW_BY_NAME.get(m[1]); return { view: v.view, detail: detailOf(m[2], m[3]), target: v.target }; }
   m = /^#(job|mac)\/(.+)$/.exec(hash);
-  if (m) return at(current, m[1], m[2]);
-  return { view: VIEW_BY_LEGACY.get(hash.slice(1)) || "overview", detail: null };
+  if (m) return { view: current, detail: detailOf(m[1], m[2]), target: null };
+  const v = VIEW_BY_NAME.get(hash.slice(1));
+  return { view: v ? v.view : "board", detail: null, target: v ? v.target : null };
 }
 function routeHash(r) { return "#/" + r.view + (r.detail ? "/" + r.detail.kind + "/" + enc(r.detail.id) : ""); }
 
 function buildNav() {
-  const groups = [];
-  for (const v of VIEWS) {
-    if (!groups.length || groups[groups.length - 1].name !== v.group) groups.push({ name: v.group, views: [] });
-    groups[groups.length - 1].views.push(v);
+  $("nav").replaceChildren(h("ul", null, VIEWS.map((v) => {
+    const count = h("span", { class: "nav-count" });
+    const a = h("a", { href: "#/" + v.id }, h("span", null, v.label), count);
+    NAV.set(v.id, a);
+    NAV_COUNT.set(v.id, count);
     $("view-" + v.id).prepend(h("h2", { tabindex: -1 }, v.label));
-  }
-  $("nav").replaceChildren(...groups.flatMap((g, i) => [
-    g.name ? h("h2", { class: "nav-group", id: "nav-group-" + i }, g.name) : null,
-    h("ul", { "aria-labelledby": g.name ? "nav-group-" + i : null }, g.views.map((v) => {
-      const count = h("span", { class: "nav-count" });
-      const a = h("a", { href: "#/" + v.id }, h("span", null, v.label), count);
-      NAV.set(v.id, a);
-      NAV_COUNT.set(v.id, count);
-      return h("li", null, a);
-    }))]).filter(Boolean));
+    return h("li", null, a);
+  })));
+}
+function buildWindows() {
+  $("f-when").append(...WINDOWS.map(([label, s]) => h("label", { class: "opt" },
+    h("input", { class: "sr", type: "radio", name: "f-when", value: s == null ? "" : s, checked: s == null }), label)));
 }
 
 let current = null, detail = null;
-function showView(id, focus) {
-  if (id === current) return;
-  current = id;
-  for (const v of VIEWS) {
-    $("view-" + v.id).hidden = v.id !== id;
-    if (v.id === id) NAV.get(v.id).setAttribute("aria-current", "page"); else NAV.get(v.id).removeAttribute("aria-current");
+function showView(id, focus, target) {
+  if (id !== current) {
+    current = id;
+    for (const v of VIEWS) {
+      $("view-" + v.id).hidden = v.id !== id;
+      if (v.id === id) NAV.get(v.id).setAttribute("aria-current", "page"); else NAV.get(v.id).removeAttribute("aria-current");
+    }
+    document.title = VIEW_BY_ID.get(id).label + " · Cider Builder";
+    window.scrollTo(0, 0);
   }
-  document.title = VIEW_BY_ID.get(id).label + " · Cider Builder";
-  window.scrollTo(0, 0);
-  if (focus) $("view-" + id).querySelector("h2").focus();
+  const heading = (target && $(target)) || $("view-" + id).querySelector("h2");
+  if (target) heading.scrollIntoView();
+  if (focus) heading.focus();
 }
 function setMenu(open) {
-  $("side").classList.toggle("open", open);
+  $("bar").classList.toggle("open", open);
   $("menu-btn").setAttribute("aria-expanded", String(open));
+}
+function closeMayGoBack(e, r) {
+  const old = e ? parseHash(new URL(e.oldURL).hash, current || "board") : null;
+  return !!old && old.view === r.view && !old.detail;
 }
 function route(e) {
   setMenu(false);
-  const r = parseHash(location.hash, current || "overview");
+  const r = parseHash(location.hash, current || "board");
   const canon = routeHash(r);
   const d = r.detail;
-  // Close may go Back only if the entry before this one is the same view with no drawer. The entry
-  // records that in history.state: a new entry (state null) learns it from e.oldURL, Back and Forward
-  // bring it back, and a cold load or a reload records false.
   let state = history.state;
-  if (d && (!e || state === null)) {
-    const old = e ? parseHash(new URL(e.oldURL).hash, current || "overview") : null;
-    state = { back: !!old && old.view === r.view && !old.detail };
-  }
+  if (d && (!e || state === null)) state = { back: closeMayGoBack(e, r) };
   if ((location.hash && location.hash !== canon) || state !== history.state) history.replaceState(state, "", canon);
-  showView(r.view, !!e && !detail);
+  const was = detail;
+  showView(r.view, !!e && !was && !d, r.target);
   if (!d) { hideDrawer(); return; }
   const back = !!e && state.back;
-  if (detail && detail.kind === d.kind && detail.id === d.id) { detail.back = back; return; }
-  detail = { kind: d.kind, id: d.id, back };
+  if (was && was.kind === d.kind && was.id === d.id) { was.back = back; return; }
+  const opener = e ? { el: document.activeElement, href: new URL(e.newURL).hash } : null;
+  detail = { kind: d.kind, id: d.id, back, opener, regions: [] };
   $("drawer").hidden = $("scrim").hidden = false;
-  $("drawer-title").textContent = (detail.kind === "job" ? "Job " : "Mac ") + d.id;
+  $("drawer").classList.toggle("wide", d.kind === "job");
+  $("drawer-title").textContent = (d.kind === "job" ? "Job " : "Mac ") + d.id;
+  $("drawer-body").className = "drawer-body" + (d.kind === "job" ? " job" : "");
   $("drawer-body").replaceChildren();
   $("drawer-body").scrollTop = 0;
-  if (detail.kind === "job") openJob(detail); else renderMac(detail);
+  if (d.kind === "job") openJob(detail); else openMac(detail);
+  if (e) $("drawer-close").focus();
 }
 function hideDrawer() {
+  const was = detail;
   detail = null;
   $("drawer").hidden = $("scrim").hidden = true;
+  $("drawer").classList.remove("wide");
+  $("drawer-body").className = "drawer-body";
+  if (window.CSS && CSS.highlights) { CSS.highlights.delete("log-hit"); CSS.highlights.delete("log-cur"); }
+  if (was) restoreFocus(was);
+}
+function restoreFocus(d) {
+  const o = d.opener, sec = $("view-" + current);
+  if (!o) return;
+  if (o.el && o.el.isConnected && o.el !== document.body) { o.el.focus(); if (document.activeElement === o.el) return; }
+  const again = /^#(job|mac)\//.test(o.href) && sec.querySelector('a[href="' + CSS.escape(o.href) + '"]');
+  (again || sec.querySelector("h2")).focus();
 }
 function closeDrawer() {
   if (detail && detail.back) { history.back(); return; }
@@ -889,86 +1105,151 @@ function closeDrawer() {
   hideDrawer();
 }
 buildNav();
+buildWindows();
+buildRegions();
 window.addEventListener("hashchange", route);
 $("drawer-close").addEventListener("click", closeDrawer);
 $("scrim").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && detail && !$("confirm").open) closeDrawer(); });
-$("menu-btn").addEventListener("click", () => setMenu(!$("side").classList.contains("open")));
+$("menu-btn").addEventListener("click", () => setMenu(!$("bar").classList.contains("open")));
 $("nav").addEventListener("click", (e) => { if (e.target.closest("a")) setMenu(false); });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && $("side").classList.contains("open")) { setMenu(false); $("menu-btn").focus(); }
+  if (e.key === "Escape" && $("bar").classList.contains("open")) { setMenu(false); $("menu-btn").focus(); }
 });
-
-function renderMac(v) {
-  if (v !== detail) return;
-  const ws = (S.st && S.st.workers) || [];
-  const w = ws.find((x) => x.label === v.id);
-  if (!v.top) {
-    v.top = h("div");
-    v.actions = h("div");
-    v.rest = h("div");
-    $("drawer-body").replaceChildren(v.top, v.actions, v.rest);
-  }
-  if (!w) {
-    v.actionsKey = "";
-    v.actions.replaceChildren();
-    v.rest.replaceChildren();
-    v.top.replaceChildren(h("p", { class: "hint" }, S.st ? "The hub doesn't list this Mac: it is disabled with no heartbeat, or it doesn't exist." : "Loading…"));
-    return;
-  }
-  const ram = num(w.ram_gb), free = num(w.free_gb), info = w.info && typeof w.info === "object" ? w.info : {};
-  const act = ((S.st && S.st.active) || []).filter((j) => j.worker === v.id && j.state !== "queued");
-  const hist = ((S.hist && S.hist.jobs) || []).filter((j) => j.worker === v.id).slice(0, 20);
-  const aff = ((S.cache && S.cache.affinity) || []).filter((a) => a.worker === v.id);
-  const key = [w.enabled, w.slots, w.used, w.agent_current, w.self_update, w.update].join("|");
-  if (v.actionsKey !== key) { v.actionsKey = key; v.actions.replaceChildren(macActions(w)); }
-  v.top.replaceChildren(kv([["State", badge(w.state)], ["Enabled", w.enabled ? "yes" : "no"],
-        ["Slots", num(w.used) + " in use of " + num(w.slots)], ["RAM", Math.round(free) + " GB free of " + ram + " GB"],
-        ["Xcode", w.xcode], ["Agent", agentText(w)], w.update_error ? ["Agent update", h("span", { class: "err" }, show(w.update_error))] : null,
-        ["User", w.user], ["Last heartbeat", agoEl(w.seen)],
-        ["Agent boot", h("span", { class: "mono" }, show(w.boot))],
-        ["Jobs it reports", (w.running || []).length ? h("span", { class: "mono" }, (Array.isArray(w.running) ? w.running : [w.running]).map(show).join(" ")) : "none"],
-        ...Object.keys(info).sort().map((k) => [k, info[k]])]));
-  v.rest.replaceChildren(
-    h("h3", null, "Building here"),
-    table([["Job"], ["Project"], ["Plat."], ["Client"], ["State"], ["Time", "num"]],
-      act.map((j) => clickRow(jobHref(j.id), [h("td", null, h("a", { href: jobHref(j.id), class: "mono" }, show(j.id))),
-        h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)), h("td", null, badge(j.state)),
-        h("td", { class: "num" }, since(j.started || j.created))])), "Nothing running."),
-    h("h3", null, "Last 20 jobs"),
-    table([["Finished"], ["Project"], ["Plat."], ["Client"], ["Duration", "num"], ["rc", "num"], ["State"]],
-      hist.map((j) => clickRow(jobHref(j.id), [h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))),
-        h("td", null, show(j.proj)), h("td", null, show(j.plat)), h("td", null, show(j.client)), h("td", { class: "num" }, took(j)),
-        h("td", { class: "num" }, show(j.rc)), h("td", null, badge(j.state))])), "No finished jobs on this Mac."),
-    h("h3", null, "Affinity"),
-    table([["Project"], ["Plat."]], aff.map((a) => h("tr", null, h("td", { class: "mono" }, show(a.proj)), h("td", null, show(a.plat)))),
-      "No project prefers this Mac."));
+for (const id of ["f-q", "f-state", ...FILTERS.map((f) => f[0])]) {
+  $(id).addEventListener("input", () => { $("f-failed").checked = $("f-state").value === "failed"; paint(); });
 }
-function macActions(w) {
-  const input = h("input", { type: "number", min: 1, max: 99, step: 1, value: num(w.slots) || defaultSlots(w), "aria-label": "Slots", disabled: !w.enabled });
-  const save = h("button", { type: "button", disabled: !w.enabled, on: { click: () => {
+$("f-when").addEventListener("change", () => paint());
+$("f-failed").addEventListener("change", () => { $("f-state").value = $("f-failed").checked ? "failed" : ""; paint(); });
+$("board-failures").addEventListener("click", () => { $("f-state").value = "failed"; $("f-failed").checked = true; paint(); });
+
+function openMac(v) {
+  const why = h("div"), actions = h("div"), facts = h("div"), rest = h("div");
+  $("drawer-body").replaceChildren(why, actions, facts, rest);
+  const me = (M) => M.macs.find((m) => m.label === v.id) || null;
+  v.regions = [
+    { el: why, slice: (M) => { const m = me(M); return m ? m.why : null; },
+      render: (why) => why === null ? h("p", { class: "hint" }, "The hub doesn't list this Mac: it is disabled with no heartbeat, or it doesn't exist.")
+        : why ? h("p", { class: "note" }, why) : null },
+    { el: actions, slice: (M) => { const m = me(M); return m && { label: m.label, enabled: m.enabled, slots: m.slots, used: m.used, ramGb: m.ramGb, agent: m.agent, updateError: m.updateError, hubAgent: M.agent }; },
+      render: (m) => m && macActions(m) },
+    { el: facts, slice: (M) => { const m = me(M); return m && { ...m, cells: undefined, why: undefined }; }, render: (m) => m && macFacts(m) },
+    { el: rest, slice: (M) => { const m = me(M); return m && { building: m.cells.filter((c) => c.kind === "job"),
+        last: M.history.filter((j) => j.worker === m.label).slice(0, 20), aff: M.affinity.filter((a) => a.worker === m.label) }; },
+      render: (s) => s && macRest(s) },
+  ];
+  paint();
+}
+function macActions(m) {
+  const input = h("input", { type: "number", min: 1, max: 99, step: 1, value: m.slots || defaultSlots(m.ramGb), "aria-label": "Slots", disabled: !m.enabled });
+  const save = h("button", { type: "button", disabled: !m.enabled, on: { click: () => {
     const n = Number(input.value);
     if (!Number.isInteger(n) || n < 1 || n > 99) { toast("Slots must be a number from 1 to 99.", true); return; }
-    if (n === num(w.slots)) { toast("It already has " + n + " slots."); return; }
-    setSlots(w, n);
+    if (n === m.slots) { toast("It already has " + n + " slots."); return; }
+    setSlots(m, n);
   } } }, "Change slots");
+  const a = AGENT[m.agent];
   return h("div", { class: "toolbar" }, h("label", { class: "hint" }, "Slots"), input, save,
-    w.enabled ? null : h("span", { class: "hint" }, "enable it first"),
-    w.enabled ? h("button", { type: "button", class: "danger", on: { click: () => dropMac(w) } }, "Disable")
-              : h("button", { type: "button", on: { click: () => enableMac(w) } }, "Enable"),
-    canUpdateAgent(w) ? h("button", { type: "button", on: { click: () => updateAgent(w, S.st && S.st.agent) } }, "Update agent")
-      : w.update ? h("span", { class: "hint" }, "updating the agent")
-      : !w.agent_current && !w.self_update ? h("span", { class: "hint" }, "agent too old to update from here: run cider-build add " + show(w.label) + " once") : null);
+    m.enabled ? null : h("span", { class: "hint" }, "enable it first"),
+    m.enabled ? h("button", { type: "button", class: "danger", on: { click: () => dropMac(m) } }, "Disable")
+              : h("button", { type: "button", on: { click: () => enableMac(m) } }, "Enable"),
+    a.canUpdate ? h("button", { type: "button", on: { click: () => updateAgent(m, m.hubAgent) } }, "Update agent")
+      : a.note ? h("span", { class: "hint" }, a.note(m)) : null);
+}
+function macFacts(m) {
+  return kv([["State", badge(m.code)], ["Enabled", m.enabled ? "yes" : "no"],
+    ["Slots", m.used + " in use of " + m.slots], ["RAM", m.freeGb + " GB free of " + m.ramGb + " GB"],
+    ["Xcode", m.xcode || "-"], ["Agent", m.version + (AGENT[m.agent].outdated ? " (outdated)" : "")],
+    m.updateError ? ["Agent update", h("span", { class: "err" }, m.updateError)] : null,
+    ["User", m.user], ["Last heartbeat", agoEl(m.seen)],
+    ["Agent boot", h("span", { class: "mono" }, m.boot)],
+    ["Jobs it reports", m.reports.length ? h("span", { class: "mono" }, m.reports.join(" ")) : "none"],
+    ...m.info]);
+}
+function macRest(s) {
+  return [
+    h("h3", null, "Building here"),
+    table([["Job"], ["Project"], ["Plat."], ["Client"], ["State"], ["Time", "num"]],
+      s.building.map((c) => clickRow(jobHref(c.id), [h("td", null, h("a", { href: jobHref(c.id), class: "mono" }, c.id)),
+        h("td", null, c.proj), h("td", null, c.plat), h("td", null, c.client), h("td", null, badge(c.state)),
+        h("td", { class: "num" }, c.start == null ? "-" : since(c.start))])), "Nothing running."),
+    h("h3", null, "Last 20 jobs"),
+    table([["Finished"], ["Project"], ["Plat."], ["Client"], ["Duration", "num"], ["rc", "num"], ["State"]],
+      s.last.map((j) => clickRow(jobHref(j.id), [h("td", null, h("a", { href: jobHref(j.id) }, when(j.finished))),
+        h("td", null, j.proj), h("td", null, j.plat), h("td", null, j.client), h("td", { class: "num" }, j.took),
+        h("td", { class: "num" }, j.rc), h("td", null, badge(j.state))])), "No finished jobs on this Mac."),
+    h("h3", null, "Affinity"),
+    table([["Project"], ["Plat."]], s.aff.map((a) => h("tr", null, h("td", { class: "mono" }, a.proj), h("td", null, a.plat))),
+      "No project prefers this Mac.")];
 }
 
-// --- job detail and its log -----------------------------------------------------------------------
-
+function jobView(j, M) {
+  const active = ACTIVE.includes(j.state), id = show(j.id), typ = M.typ[pp(j)];
+  const start = num(j.started) || num(j.created);
+  return { id, proj: show(j.proj), plat: show(j.plat), state: show(j.state), active, start, took: took(j), typ: typ == null ? null : typ,
+    end: j.state === "building" && typ != null ? start + typ : null, client: show(j.client), worker: j.worker ? show(j.worker) : "",
+    kind: show(j.kind), waiting: active ? num(M.live[id]) : 0, file: show(j.key) + "-" + show(j.plat) + "." + show(j.ext), done: j.state === "done" };
+}
+function jobHead(s, v) {
+  if (!s) return h("p", { class: v.err ? "err" : "hint" }, v.err ? "Couldn't read the job: " + v.err : "Loading…");
+  return [h("b", null, s.proj), h("span", { class: "plat" }, s.plat), badge(s.state),
+    s.active ? since(s.start) : h("span", null, s.took),
+    s.typ != null ? h("span", { class: "muted" }, "typical " + mmss(s.typ)) : null,
+    s.end != null ? live("left", s.end) : null,
+    h("span", null, s.client), s.worker ? h("span", null, "on ", macLink(s.worker)) : null, h("span", { class: "muted" }, s.kind),
+    s.active ? h("span", { class: "muted" }, s.waiting + (s.waiting === 1 ? " client waiting" : " clients waiting")) : null,
+    h("button", { type: "button", class: "details", "aria-expanded": String(!!v.more), "aria-controls": "job-more", on: { click: (e) => {
+      v.more = !v.more;
+      $("job-more").hidden = !v.more;
+      e.currentTarget.setAttribute("aria-expanded", String(v.more));
+    } } }, "Details"),
+    s.active ? h("button", { type: "button", class: "danger", on: { click: () => cancelJob(s, s.waiting) } }, "Cancel job") : null,
+    s.done ? h("a", { href: cacheHref(s.proj, s.file), download: s.file }, "Download " + s.file) : null].filter(Boolean).flatMap((x) => [x, " "]);
+}
+function jobFacts(s) {
+  const j = s.job, active = ACTIVE.includes(j.state);
+  const registered = j.waiters && typeof j.waiters === "object" ? Object.keys(j.waiters).length : 0;
+  const cfg = j.cfg && typeof j.cfg === "object" ? j.cfg : {};
+  const known = new Set(["id", "proj", "key", "plat", "kind", "client", "state", "worker", "created", "started", "finished", "rc",
+    "retries", "attempt", "src", "position", "waiters", "cfg", "log_size", "ext", "seen", "delivered_boot", "log_offset"]);
+  return kv([["State", badge(j.state)], ["Project", j.proj], ["Key", h("span", { class: "mono" }, show(j.key))],
+    ["Platform", j.plat], ["Kind", j.kind], ["Client", j.client], ["Mac", macLink(j.worker)],
+    j.state === "queued" ? ["Queue position", j.position] : null,
+    ["Source uploaded", j.src ? "yes" : "no"], ["Attempt", j.attempt], ["Retries", j.retries], ["rc", j.rc],
+    ["Created", when(j.created)], ["Started", when(j.started)], ["Finished", when(j.finished)],
+    ["Duration", active ? since(j.started || j.created) : took(j)],
+    ["Clients waiting", active ? s.waiting + " live (" + registered + " registered)" : registered + " registered"],
+    active && j.worker ? ["Last report from the Mac", agoEl(j.seen)] : null,
+    j.delivered_boot ? ["Agent boot", h("span", { class: "mono" }, show(j.delivered_boot))] : null,
+    ["Log", bytes(j.log_size)],
+    ...Object.keys(cfg).sort().map((k) => ["cfg." + k, cfg[k]]),
+    ...Object.keys(j).filter((k) => !known.has(k)).sort().map((k) => [k, j[k]])]);
+}
 async function openJob(v) {
-  v.meta = h("div", null, h("p", { class: "hint" }, "Loading…"));
-  v.logInfo = h("div", { class: "log-status" });
+  v.more = false;
+  const head = h("div", { class: "job-head" }), more = h("div", { id: "job-more", hidden: true });
+  const search = h("input", { type: "search", placeholder: "Search the log", "aria-label": "Search the log" });
+  let debounce = 0;
+  search.addEventListener("input", () => { clearTimeout(debounce); debounce = setTimeout(() => findInLog(v, search.value, 0), 150); });
+  search.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); findInLog(v, search.value, e.shiftKey ? -1 : 1); } });
+  v.find = h("span", { class: "log-find" });
+  v.status = h("span", { class: "log-status" });
   v.pre = h("pre", { class: "log", tabindex: 0 });
-  v.pre.addEventListener("scroll", () => { v.follow = v.pre.scrollTop + v.pre.clientHeight >= v.pre.scrollHeight - 8; });
-  $("drawer-body").replaceChildren(v.meta, h("h3", null, "Log"), v.logInfo, v.pre);
+  v.pre.addEventListener("scroll", () => { v.follow = v.pre.scrollTop + v.pre.clientHeight >= v.pre.scrollHeight - 8; syncTools(v); });
+  v.tools = {
+    wrap: h("button", { type: "button", "aria-pressed": "true", on: { click: (e) => {
+      const on = !v.pre.classList.toggle("nowrap");
+      e.currentTarget.setAttribute("aria-pressed", String(on));
+    } } }, "Wrap"),
+    from: h("button", { type: "button", on: { click: () => startLog(v, 0) } }, "From start"),
+    follow: h("button", { type: "button", on: { click: () => { v.follow = !v.follow; if (v.follow) v.pre.scrollTop = v.pre.scrollHeight; syncTools(v); } } }, "Follow"),
+  };
+  $("drawer-body").replaceChildren(head, more, h("div", { class: "log-tools" }, search, v.find, v.tools.wrap, v.tools.from, v.tools.follow, v.status), v.pre);
+  v.regions = [
+    { el: head, slice: (M) => v.job ? jobView(v.job, M) : null, render: (s) => jobHead(s, v) },
+    { el: more, slice: (M) => v.job ? { job: v.job, waiting: num(M.live[show(v.job.id)]) } : null, render: (s) => s && jobFacts(s) },
+  ];
+  paint();
   if (!(await refreshJob(v))) return;
   startLog(v, Math.max(0, num(v.job.log_size) - LOG_TAIL));
 }
@@ -977,38 +1258,13 @@ async function refreshJob(v) {
     const d = await getJSON("/api/job?job=" + enc(v.id));
     if (v !== detail) return false;
     v.job = d.job;
-    renderJobMeta(v);
-    return true;
+    v.err = "";
   } catch (e) {
-    if (v === detail) v.meta.replaceChildren(h("p", { class: "err" }, "Couldn't read the job: " + e.message));
-    return false;
+    if (v !== detail) return false;
+    v.err = e.message;
   }
-}
-function renderJobMeta(v) {
-  const j = v.job, active = ACTIVE.includes(j.state);
-  const live = ((S.st && S.st.active) || []).find((a) => a.id === j.id);
-  const waiting = live ? num(live.waiters) : 0;
-  const registered = j.waiters && typeof j.waiters === "object" ? Object.keys(j.waiters).length : 0;
-  const cfg = j.cfg && typeof j.cfg === "object" ? j.cfg : {};
-  const known = new Set(["id", "proj", "key", "plat", "kind", "client", "state", "worker", "created", "started", "finished", "rc",
-    "retries", "attempt", "src", "position", "waiters", "cfg", "log_size", "ext", "seen", "delivered_boot", "log_offset"]);
-  const file = show(j.key) + "-" + show(j.plat) + "." + show(j.ext);
-  v.meta.replaceChildren(
-    kv([["State", badge(j.state)], ["Project", j.proj], ["Key", h("span", { class: "mono" }, show(j.key))],
-        ["Platform", j.plat], ["Kind", j.kind], ["Client", j.client], ["Mac", macLink(j.worker)],
-        j.state === "queued" ? ["Queue position", j.position] : null,
-        ["Source uploaded", j.src ? "yes" : "no"], ["Attempt", j.attempt], ["Retries", j.retries], ["rc", j.rc],
-        ["Created", when(j.created)], ["Started", when(j.started)], ["Finished", when(j.finished)],
-        ["Duration", active ? since(j.started || j.created) : took(j)],
-        ["Clients waiting", active ? waiting + " live (" + registered + " registered)" : registered + " registered"],
-        active && j.worker ? ["Last report from the Mac", agoEl(j.seen)] : null,
-        j.delivered_boot ? ["Agent boot", h("span", { class: "mono" }, show(j.delivered_boot))] : null,
-        ["Log", bytes(j.log_size)],
-        ...Object.keys(cfg).sort().map((k) => ["cfg." + k, cfg[k]]),
-        ...Object.keys(j).filter((k) => !known.has(k)).sort().map((k) => [k, j[k]])]),
-    h("div", { class: "toolbar" },
-      active ? h("button", { type: "button", class: "danger", on: { click: () => cancelJob(j, waiting) } }, "Cancel job") : null,
-      j.state === "done" ? h("a", { href: cacheHref(j.proj, file), download: file }, "Download " + file) : null));
+  paint();
+  return !v.err;
 }
 
 const ANSI = /\x1b\[[0-?]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[P^_][^\x1b]*\x1b\\|\x1b[ -\/]+[0-~]|\x1b[@-Z\\]/g;
@@ -1017,16 +1273,54 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function startLog(v, offset) {
   v.gen = (v.gen || 0) + 1;
-  Object.assign(v, { offset, decoder: new TextDecoder("utf-8"), pending: "", len: 0, trimmed: false, follow: true, from: offset });
+  Object.assign(v, { offset, decoder: new TextDecoder("utf-8"), pending: "", len: 0, trimmed: false, follow: true, from: offset, q: "", hits: [], hit: -1 });
   v.pre.replaceChildren();
+  showHits(v);
   pumpLog(v, v.gen);
 }
+function syncTools(v) {
+  v.tools.from.disabled = v.from === 0;
+  v.tools.follow.setAttribute("aria-pressed", String(!!v.follow));
+}
 function logStatus(v, text) {
-  v.logInfo.replaceChildren(...[h("span", null, text),
-    v.from > 0 ? h("span", null, "Showing from byte " + v.from + ".") : null,
-    v.trimmed ? h("span", null, "The start was trimmed to stay under 4 MB.") : null,
-    v.from > 0 ? h("button", { type: "button", on: { click: () => startLog(v, 0) } }, "Load from the start") : null,
-    v.follow ? null : h("button", { type: "button", on: { click: () => { v.follow = true; v.pre.scrollTop = v.pre.scrollHeight; } } }, "Jump to the end")].filter(Boolean));
+  v.status.textContent = [text, v.from > 0 ? "Showing from byte " + v.from + "." : "", v.trimmed ? "The start was trimmed to stay under 4 MB." : ""].filter(Boolean).join(" ");
+  syncTools(v);
+}
+function markHits(v, node) {
+  if (!v.q || v.hits.length >= LOG_HITS_MAX) return;
+  const text = node.data.toLowerCase(), q = v.q.toLowerCase();
+  for (let i = text.indexOf(q); i >= 0 && v.hits.length < LOG_HITS_MAX; i = text.indexOf(q, i + q.length)) {
+    const r = new Range();
+    r.setStart(node, i);
+    r.setEnd(node, i + q.length);
+    v.hits.push(r);
+  }
+}
+function showHits(v) {
+  if (window.CSS && CSS.highlights && typeof Highlight === "function") {
+    CSS.highlights.set("log-hit", new Highlight(...v.hits));
+    CSS.highlights.set("log-cur", new Highlight(...(v.hit >= 0 && v.hits[v.hit] ? [v.hits[v.hit]] : [])));
+  }
+  const n = v.hits.length, cap = n >= LOG_HITS_MAX ? "+" : "";
+  v.find.textContent = !v.q ? "" : v.hit >= 0 ? (v.hit + 1) + " of " + n + cap : n ? n + cap + (n === 1 ? " hit" : " hits") : "no hits";
+}
+function findInLog(v, q, step) {
+  if (q !== v.q) {
+    Object.assign(v, { q, hits: [], hit: -1 });
+    if (q) for (const n of v.pre.childNodes) markHits(v, n);
+  } else {
+    v.hits = v.hits.filter((r) => r.startContainer.isConnected);
+    if (v.hit >= v.hits.length) v.hit = -1;
+  }
+  if (step && v.hits.length) {
+    const n = v.hits.length;
+    v.hit = v.hit < 0 ? (step > 0 ? 0 : n - 1) : (v.hit + step + n) % n;
+    const r = v.hits[v.hit].getBoundingClientRect(), p = v.pre.getBoundingClientRect();
+    v.follow = false;
+    v.pre.scrollTop += r.top - p.top - v.pre.clientHeight / 2;
+    syncTools(v);
+  }
+  showHits(v);
 }
 function cleanLog(v, s, final) {
   s = v.pending + s;
@@ -1037,13 +1331,18 @@ function cleanLog(v, s, final) {
 }
 function appendLog(v, s) {
   if (!s) return;
-  const pre = v.pre;
-  pre.append(document.createTextNode(s));
+  const pre = v.pre, node = document.createTextNode(s);
+  pre.append(node);
   v.len += s.length;
+  let dropped = false;
   while (v.len > LOG_CAP && pre.firstChild && pre.firstChild !== pre.lastChild) {
     v.len -= pre.firstChild.length;
     pre.firstChild.remove();
-    v.trimmed = true;
+    v.trimmed = dropped = true;
+  }
+  if (v.q) {
+    markHits(v, node);
+    if (dropped) findInLog(v, v.q, 0); else showHits(v);
   }
   if (v.follow) pre.scrollTop = pre.scrollHeight;
 }
