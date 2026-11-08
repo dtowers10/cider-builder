@@ -18,14 +18,18 @@
 #         curl -fsSL https://<hub>:4710/bin/install.sh | bash -s client
 #
 #   install.sh worker [--slots N] [--user U] [--remove]
-#       On a Mac that will build, as its user (or as root with --user). Downloaded from the hub:
+#       On an Apple Silicon Mac, or an x86-64 Linux machine that builds Android only, as the user that builds (or as
+#       root with --user). Downloaded from the hub:
 #         curl -fsSL http://<hub IP or name>:4711/join | bash
-#       Installs the tools and the agent, and registers the Mac with the hub. --remove takes it out of the fleet.
+#       Installs the tools and the agent, and registers the machine with the hub. --remove takes it out of the fleet.
+#       On Linux it needs apt-get for what is missing (JDK 17, rsync, unzip, git, xz) and runs the agent as a
+#       systemd user service with lingering on, so it builds with nobody logged in.
 #
 # An install from before the rename to Cider Builder (mac-build, ~/mac-build, com.mac-build.*) becomes this one
 # the first time each command runs over it: the hub and the Macs keep their state, and a client keeps its hub.
 #
 # Optional variables:
+#   CIDER_BUILD_ANDROID_TOOLS  URL of the Android command-line tools zip for Linux (default: the pinned release)
 #   CIDER_BUILD_HUB   hub URL for client and worker (the scripts the hub serves set it already); MAC_BUILD_HUB
 #                     also works
 #   PREFIX            folder for `cider-build` on the client (default ~/.local/bin)
@@ -35,6 +39,7 @@ HUB_URL=${CIDER_BUILD_HUB:-${MAC_BUILD_HUB:-}}
 # The PATH of both LaunchDaemon and LaunchAgent, and where install.sh looks for tailscale, so that what the check
 # finds is what the daemons find: Homebrew's, or the Tailscale app's command-line tool in /usr/local/bin.
 DAEMON_PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+ANDROID_TOOLS=${CIDER_BUILD_ANDROID_TOOLS:-https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip}
 
 say() { printf '%s\n' "$*" >&2; }
 ok() { printf '  ✓ %s\n' "$*" >&2; }
@@ -336,7 +341,7 @@ as() { # user command…: as that user, with sudo only if it is not the current 
 admin() { # command…: as root; if we are not root, sudo asks for the password on the terminal
   if [ "$(id -u)" -eq 0 ]; then "$@" || die "failed: $*"; return; fi
   say "  Your administrator password is needed for: $*"
-  sudo "$@" || die "could not run with sudo: $*. Repeat from the Mac's Terminal, as an administrator user."
+  sudo "$@" || die "could not run with sudo: $*. Repeat from a terminal on this machine, as an administrator user."
 }
 
 place() { # user file: writes stdin to the file if its content changes; exits 0 if it changed
@@ -368,14 +373,70 @@ print(next((w["state"] for w in json.load(sys.stdin)["workers"] if w["label"] ==
 
 build_user() { # who builds when running as root: whoever already has the agent, otherwise whoever is logged in
   local p
+  if [ "$sys" = linux ]; then
+    for p in /home/*/.config/systemd/user/cider-build-worker.service; do
+      if [ -e "$p" ]; then stat -c %U "$p"; return; fi
+    done
+    printf '%s\n' "${SUDO_USER:-}"; return
+  fi
   for p in /Users/*/Library/LaunchAgents/com.{cider,mac}-build.worker.plist; do
     if [ -e "$p" ]; then stat -f %Su "$p"; return; fi
   done
   stat -f %Su /dev/console
 }
 
+android_sdk() { # user sdk sdkmanager: the platform, build tools and adb this fleet builds with
+  local u=$1 sdk=$2 sdkmanager=$3 p need=""
+  as "$u" mkdir -p "$sdk"
+  for p in platform-tools "platforms;android-36" "build-tools;36.0.0"; do [ -d "$sdk/${p//;//}" ] || need="$need $p"; done
+  yes | as "$u" "$sdkmanager" --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
+  if [ -n "$need" ]; then say "  Installing Android SDK:${need}…"; as "$u" "$sdkmanager" --sdk_root="$sdk" $need >/dev/null 2>&1; fi
+}
+
+provision_linux() { # user home: JDK 17, rsync, unzip, git and xz from apt; node 22 and the Android SDK for the user
+  local u=$1 home=$2 pkgs="" p jdk node sdk tmp v t
+  node=$home/cider-build/node sdk=$home/Android/Sdk
+  compgen -G "/usr/lib/jvm/java-17-openjdk-*/bin/java" >/dev/null || pkgs="$pkgs openjdk-17-jdk-headless"
+  for p in rsync unzip git; do command -v "$p" >/dev/null || pkgs="$pkgs $p"; done
+  command -v xz >/dev/null || pkgs="$pkgs xz-utils"
+  if [ -n "$pkgs" ]; then
+    command -v apt-get >/dev/null || die "missing:$pkgs. Install them with this distribution's package manager (the JDK in /usr/lib/jvm/java-17-openjdk-*) and repeat."
+    say "  Installing$pkgs…"
+    admin env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    admin env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq $pkgs >/dev/null
+  fi
+  jdk=(/usr/lib/jvm/java-17-openjdk-*); export JAVA_HOME=${jdk[0]}
+  as "$u" mkdir -p "$home/cider-build" "$home/builds"
+
+  tmp=$(mktemp -d); chmod 755 "$tmp"
+  if [ ! -x "$node/bin/node" ]; then
+    say "  Installing node 22…"
+    curl -fsS -o "$tmp/SHASUMS256.txt" https://nodejs.org/dist/latest-v22.x/SHASUMS256.txt || die "could not reach nodejs.org."
+    v=$(awk '/linux-x64[.]tar[.]xz$/ {print $2}' "$tmp/SHASUMS256.txt")
+    [ -n "$v" ] || die "nodejs.org lists no linux-x64 build of node 22."
+    curl -fsS -o "$tmp/$v" "https://nodejs.org/dist/latest-v22.x/$v" || die "could not download $v."
+    (cd "$tmp" && grep " $v\$" SHASUMS256.txt | sha256sum -c --status) || die "$v does not match its checksum."
+    as "$u" mkdir -p "$node"
+    as "$u" tar -xJf "$tmp/$v" --strip-components=1 -C "$node"
+  fi
+  if [ ! -x "$sdk/cmdline-tools/latest/bin/sdkmanager" ]; then
+    say "  Installing Android command-line tools…"
+    curl -fsS -o "$tmp/tools.zip" "$ANDROID_TOOLS" || die "could not download $ANDROID_TOOLS."
+    unzip -q "$tmp/tools.zip" -d "$tmp" && chmod -R a+rX "$tmp/cmdline-tools"
+    as "$u" mkdir -p "$sdk/cmdline-tools"
+    as "$u" cp -R "$tmp/cmdline-tools" "$sdk/cmdline-tools/latest"
+  fi
+  rm -rf "$tmp"
+  android_sdk "$u" "$sdk" "$sdk/cmdline-tools/latest/bin/sdkmanager"
+
+  for t in "$node/bin/node -v" "$JAVA_HOME/bin/java -version" "$sdk/platform-tools/adb version"; do
+    as "$u" $t >/dev/null 2>&1 || die "check failed on this machine: $t"
+  done
+  ok "tools ready: node, JDK 17, Android SDK (this machine builds Android only)"
+}
+
 provision() { # user home: Xcode, Homebrew, JDK, Android SDK; installs only what is missing
-  local u=$1 home=$2 bu f p sdk need="" t
+  local u=$1 home=$2 bu f sdk t
   xcodebuild -version >/dev/null 2>&1 || die "Xcode is missing. Install it on this Mac (App Store or xcodes; needs an Apple ID) with the same version as the rest of the fleet, the one in the XCODE column of: curl -fsS $HUB_URL/status. Then repeat."
   ok "$(xcodebuild -version | head -1)"
   xcodebuild -license check >/dev/null 2>&1 || { admin xcodebuild -license accept; ok "Xcode license accepted"; }
@@ -401,10 +462,8 @@ provision() { # user home: Xcode, Homebrew, JDK, Android SDK; installs only what
   [ -d /opt/homebrew/Caskroom/android-commandlinetools ] ||
     { say "  Installing Android command-line tools…"; as "$bu" brew install -q --cask android-commandlinetools >/dev/null; }
   sdk=$home/Library/Android/sdk
-  as "$u" mkdir -p "$sdk" "$home/builds"
-  for p in platform-tools "platforms;android-36" "build-tools;36.0.0"; do [ -d "$sdk/${p//;//}" ] || need="$need $p"; done
-  yes | as "$u" sdkmanager --sdk_root="$sdk" --licenses >/dev/null 2>&1 || true
-  if [ -n "$need" ]; then say "  Installing Android SDK:${need}…"; as "$u" sdkmanager --sdk_root="$sdk" $need >/dev/null 2>&1; fi
+  as "$u" mkdir -p "$home/builds"
+  android_sdk "$u" "$sdk" sdkmanager
 
   for t in "node -v" "pod --version" "xcodegen --version" "$JAVA_HOME/bin/java -version" "$sdk/platform-tools/adb version"; do
     as "$u" $t >/dev/null 2>&1 || die "check failed on this Mac: $t"
@@ -412,8 +471,69 @@ provision() { # user home: Xcode, Homebrew, JDK, Android SDK; installs only what
   ok "tools ready: Xcode, node, CocoaPods, xcodegen, JDK 17, Android SDK"
 }
 
+agent_files() { # user dir label: the hub's agent and build.sh, and worker.json; exits 0 if any of them changed
+  local u=$1 d=$2 label=$3 tmp f rc=1
+  tmp=$(mktemp)
+  for f in cider-build-worker build.sh; do
+    curl -fsS --retry 3 -o "$tmp" "$HUB_URL/bin/$f" || die "could not download $f from $HUB_URL."
+    if place "$u" "$d/$f" <"$tmp"; then rc=0; fi
+    as "$u" chmod 755 "$d/$f"
+  done
+  rm -f "$tmp"
+  if printf '{"label": "%s", "hub": "%s"}\n' "$label" "$HUB_URL" | place "$u" "$d/worker.json"; then rc=0; fi
+  return "$rc"
+}
+
+user_systemctl() { # user systemctl-args…: that user's systemd manager, also from root or sudo
+  local u=$1; shift
+  as "$u" env XDG_RUNTIME_DIR="/run/user/$(id -u "$u")" systemctl --user "$@"
+}
+
+install_agent_linux() { # user home label: the agent as a systemd user service; (re)started only if something changed
+  local u=$1 home=$2 label=$3 d unit changed="" n
+  d=$home/cider-build unit=$home/.config/systemd/user/cider-build-worker.service
+  as "$u" mkdir -p "$d" "${unit%/*}"
+  if agent_files "$u" "$d" "$label"; then changed=1; fi
+  if place "$u" "$unit" <<UNIT
+[Unit]
+Description=Cider Builder agent
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 $d/cider-build-worker
+Environment=PATH=$DAEMON_PATH
+Restart=always
+RestartSec=2
+KillMode=process
+StandardOutput=append:$d/worker.log
+StandardError=append:$d/worker.log
+
+[Install]
+WantedBy=default.target
+UNIT
+  then changed=1; fi
+  # Lingering starts the user's systemd at boot, so the agent runs with nobody logged in.
+  [ "$(loginctl show-user "$u" -p Linger --value 2>/dev/null)" = yes ] || { admin loginctl enable-linger "$u"; ok "lingering on for $u"; }
+  n=0
+  until [ -S "/run/user/$(id -u "$u")/systemd/private" ]; do
+    n=$((n + 1)); [ "$n" -lt 20 ] || die "the systemd user manager of $u did not start."
+    sleep 0.5
+  done
+  user_systemctl "$u" daemon-reload
+  user_systemctl "$u" enable cider-build-worker >/dev/null 2>&1 || die "systemd could not enable the agent for $u."
+  if user_systemctl "$u" is-active --quiet cider-build-worker && [ -z "$changed" ]; then
+    ok "agent up to date and running; not restarting it"; return
+  fi
+  # Restarting the agent sends whatever it is building back to the queue; so only if something changed or it is not running.
+  user_systemctl "$u" restart cider-build-worker
+  sleep 2
+  user_systemctl "$u" is-active --quiet cider-build-worker ||
+    { tail -20 "$d/worker.log" >&2; die "the agent did not start (log above, in $d/worker.log)."; }
+  ok "agent running as $u (log in $d/worker.log)"
+}
+
 install_agent() { # user home label: downloads the agent from the hub and (re)starts it only if something changed or it is not running
-  local u=$1 home=$2 label=$3 uid d plist tmp f changed="" n state
+  local u=$1 home=$2 label=$3 uid d plist changed="" n state
   uid=$(id -u "$u") d=$home/cider-build plist=$home/Library/LaunchAgents/com.cider-build.worker.plist
   # The mac-build agent, from before the rename: it stops (its builds go back to the queue) and its folder moves.
   if [ -e "$home/Library/LaunchAgents/com.mac-build.worker.plist" ]; then
@@ -427,14 +547,7 @@ install_agent() { # user home label: downloads the agent from the hub and (re)st
     ok "moved $home/mac-build to $d"
   fi
   as "$u" mkdir -p "$d" "$home/Library/LaunchAgents"
-  tmp=$(mktemp)
-  for f in cider-build-worker build.sh; do
-    /usr/bin/curl -fsS --retry 3 -o "$tmp" "$HUB_URL/bin/$f" || die "could not download $f from $HUB_URL."
-    if place "$u" "$d/$f" <"$tmp"; then changed=1; fi
-    as "$u" chmod 755 "$d/$f"
-  done
-  rm -f "$tmp"
-  if printf '{"label": "%s", "hub": "%s"}\n' "$label" "$HUB_URL" | place "$u" "$d/worker.json"; then changed=1; fi
+  if agent_files "$u" "$d" "$label"; then changed=1; fi
   if place "$u" "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -471,12 +584,24 @@ PLIST
 }
 
 remove_worker() { # label: the hub stops sending it jobs, waits for its own to finish and removes the agent
-  local label=$1 r plist u name
+  local label=$1 r plist unit u name
   r=$(curl -fsS -X DELETE "$HUB_URL/workers/$label") || die "cannot talk to the hub ($HUB_URL)."
   while [ "${r#running }" != 0 ]; do
     say "  $label no longer receives new builds. Waiting for its ${r#running } running build(s) to finish…"
     sleep 10; r=$(curl -fsS "$HUB_URL/workers/$label") || die "cannot talk to the hub ($HUB_URL)."
   done
+  if [ "$sys" = linux ]; then
+    for unit in /home/*/.config/systemd/user/cider-build-worker.service /root/.config/systemd/user/cider-build-worker.service; do
+      [ -e "$unit" ] || continue
+      u=$(stat -c %U "$unit")
+      [ "$(id -u)" -eq 0 ] || [ "$u" = "$(id -un)" ] || continue
+      user_systemctl "$u" disable --now cider-build-worker >/dev/null 2>&1 || true
+      rm -f "$unit"
+      as "$u" /usr/bin/python3 "${unit%/.config/*}/cider-build/cider-build-worker" reap 2>/dev/null || true
+      ok "agent for $u removed"
+    done
+    ok "$label removed from the build fleet"; return
+  fi
   # com.mac-build.worker is the agent from before the rename, in ~/mac-build/mac-build-worker.
   for plist in /Users/*/Library/LaunchAgents/com.{cider,mac}-build.worker.plist; do
     [ -e "$plist" ] || continue
@@ -491,7 +616,7 @@ remove_worker() { # label: the hub stops sending it jobs, waits for its own to f
 }
 
 install_worker() {
-  local slots="" want="" remove="" host label me u home gb n st
+  local slots="" want="" remove="" host label me u home gb n st sys
   while [ $# -gt 0 ]; do
     case $1 in
       --slots) [ $# -ge 2 ] || die "missing number after --slots." 2; slots=$2; shift 2 ;;
@@ -503,15 +628,20 @@ install_worker() {
   case $slots in ""|[1-9]|[1-9][0-9]) ;; *) die "--slots must be a number between 1 and 99." 2 ;; esac
 
   [ -n "$HUB_URL" ] || die "which hub? Run this through the hub: curl -fsSL http://<hub>:4711/join | bash" 2
-  [ "$(uname -s)" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] ||
-    die "only Apple Silicon Macs can build." 2
-  host=$(scutil --get LocalHostName 2>/dev/null || true)
+  if [ "$(uname -s)" = Darwin ] && [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then sys=mac
+  elif [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ]; then sys=linux
+  else die "only Apple Silicon Macs and x86-64 Linux machines (Android only) can build." 2; fi
   export PATH=$DAEMON_PATH HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1
-  export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+  if [ "$sys" = mac ]; then
+    host=$(scutil --get LocalHostName 2>/dev/null || true)
+    export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
+  else
+    host=$(hostname -s 2>/dev/null || true)
+    export JAVA_HOME=""
+  fi
   label=$(tailnet_label)
-  [ -n "$label" ] || die "this Mac is not connected to the tailnet. Install Tailscale (brew install tailscale, or the app),
-connect it to the hub's tailnet (sudo tailscale up; add --ssh so that cider-build add can reach it from a client)
-and repeat this command."
+  [ -n "$label" ] || die "this machine is not connected to the tailnet. Install Tailscale, connect it to the hub's
+tailnet (sudo tailscale up; add --ssh so that cider-build add can reach it from a client) and repeat this command."
   cd /tmp
 
   if [ -n "$remove" ]; then remove_worker "$label"; return; fi
@@ -525,14 +655,24 @@ and repeat this command."
     [ -z "$want" ] || [ "$want" = "$me" ] || die "--user only works as root. With your own user, this Mac builds as $me." 2
     u=$me
   fi
-  home=$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
-  [ -n "$home" ] || die "user $u does not exist on this Mac."
-  gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  if [ "$sys" = mac ]; then
+    home=$(dscl . -read "/Users/$u" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+    gb=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+  else
+    home=$(getent passwd "$u" | cut -d: -f6)
+    gb=$(( ($(awk '/^MemTotal:/ {print $2}' /proc/meminfo) + 524288) / 1048576 ))
+  fi
+  [ -n "$home" ] || die "user $u does not exist on this machine."
   [ -n "$slots" ] || slots=$(( gb / 24 > 0 ? gb / 24 : 1 ))
   say "Adding $label to the fleet at $HUB_URL (user $u, $gb GB of RAM, $slots slot(s))."
 
-  provision "$u" "$home"
-  install_agent "$u" "$home" "$label"
+  if [ "$sys" = mac ]; then
+    provision "$u" "$home"
+    install_agent "$u" "$home" "$label"
+  else
+    provision_linux "$u" "$home"
+    install_agent_linux "$u" "$home" "$label"
+  fi
   curl -fsS -o /dev/null -X PUT "$HUB_URL/workers/$label?slots=$slots&user=$u&ram=$gb" ||
     die "cannot register $label with the hub ($HUB_URL)."
   ok "registered with the hub with $slots slot(s)"

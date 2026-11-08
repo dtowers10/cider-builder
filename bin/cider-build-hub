@@ -73,11 +73,16 @@ ACTIVE = ("queued", "assigned", "building")
 ON_WORKER = ("assigned", "building")
 KINDS = {"expo", "react_native", "ios_native", "android_native"}
 EXT = {"ios": "app.tar.gz", "android": "apk"}
+# What each kind of builder machine can build, whatever its agent claims: a Linux machine never gets an iOS job.
+CAN_BUILD = {"macos": ("ios", "android"), "linux": ("android",)}
+# A platform listed here builds only on machines of that OS while the pool has any that can build it; with none in
+# the pool, any machine that can build it does. Android goes to the Linux machines and keeps the Macs for iOS.
+DEDICATED = {"android": "linux"}
 NAME = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 ARTIFACT = re.compile(r"^(.+)-(ios|android)\.(app\.tar\.gz|apk)$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 BASE_TMP = re.compile(r"\.(tmp|old)-[0-9a-f]{8}$")  # a base tree being written or replaced
-INFO_KEYS = ("host", "dns", "tailnet_ip", "tailnet", "chip", "model", "macos", "lan_if", "lan_ip")
+INFO_KEYS = ("host", "dns", "tailnet_ip", "tailnet", "chip", "model", "macos", "distro", "lan_if", "lan_ip")
 INFO_MAX = 80
 PANEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cider-build-panel.html")
 FONTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
@@ -451,7 +456,7 @@ def worker_state(w, t):
         return "updating", "updating the agent"
     if w["label"] in drained:
         return "drained", "out of the pool"
-    if not w.get("tools_ready"):
+    if not w.get("platforms"):
         return "no_tools", "missing tools"
     return "online", "online"
 
@@ -472,10 +477,17 @@ def refusal(*names):
     return None
 
 
-def schedulable(w, t):
-    return (w.get("enabled") and w.get("tools_ready") and not refusal(w["label"])
-            and t - w.get("seen", 0) < BEAT_TTL and w["label"] not in drained and not w.get("update")
-            and used(w["label"]) < w.get("slots", 0))
+def in_pool(w, t):
+    """Takes new jobs, free slot or not."""
+    return (w.get("enabled") and w.get("platforms") and not refusal(w["label"])
+            and t - w.get("seen", 0) < BEAT_TTL and w["label"] not in drained and not w.get("update"))
+
+
+def builders(plat, t):
+    """The machines in the pool that build this platform: only the DEDICATED OS's if the pool has any of those."""
+    pool = [w for w in workers.values() if in_pool(w, t) and plat in w["platforms"]]
+    dedicated = [w for w in pool if w.get("os") == DEDICATED.get(plat)]
+    return dedicated or pool
 
 
 def lose(j, why):
@@ -490,12 +502,10 @@ def lose(j, why):
 def schedule():
     t = time.time()
     for j in sorted((j for j in jobs.values() if j["state"] == "queued" and j["src"]), key=lambda j: j["created"]):
-        cands = [w for w in workers.values() if schedulable(w, t)]
-        if not cands:
-            return
         # A Mac that still has a Run for this id does not get the next attempt: the agent tells
         # Runs apart only by id and would not start it, while the hub would consider it building.
-        cands = [w for w in cands if j["id"] not in w.get("running", [])]
+        cands = [w for w in builders(j["plat"], t)
+                 if used(w["label"]) < w.get("slots", 0) and j["id"] not in w.get("running", [])]
         if not cands:
             continue
         aff = affinity.get("%s-%s" % (j["proj"], j["plat"]))
@@ -782,7 +792,7 @@ def got_source(j, path, via, size):
 
 def new_worker(label):
     return {"label": label, "enabled": False, "slots": 0, "user": None, "ram_gb": 0, "free_gb": 0,
-            "seen": 0, "boot": None, "running": [], "tools_ready": False, "xcode": None, "version": None, "info": {},
+            "seen": 0, "boot": None, "running": [], "os": "macos", "platforms": [], "xcode": None, "version": None, "info": {},
             "update": False, "self_update": False, "update_error": None}
 
 
@@ -793,6 +803,16 @@ def clean_info(v):
             if isinstance(v.get(k), str) and v[k].strip() and v[k].isprintable()}
 
 
+def platforms_of(body):
+    """(os, platforms it builds) from a heartbeat. An agent from before Linux builders sends only tools_ready and
+    runs on a Mac with every tool or none."""
+    osname = body.get("os") if body.get("os") in CAN_BUILD else "macos"
+    claimed = body.get("platforms")
+    if not isinstance(claimed, list):
+        claimed = list(EXT) if body.get("tools_ready") else []
+    return osname, [p for p in CAN_BUILD[osname] if p in claimed]
+
+
 def heartbeat(body):
     label = name(body.get("label"), "Mac")
     boot = name(body.get("boot"), "boot")
@@ -800,8 +820,10 @@ def heartbeat(body):
     with lock:
         w = workers.setdefault(label, new_worker(label))
         listed = [i for i in body.get("running", []) if isinstance(i, str)]
+        osname, plats = platforms_of(body)
+        w.pop("tools_ready", None)
         w.update(seen=t, boot=boot, running=listed, ram_gb=int(body.get("ram_gb") or 0),
-                 free_gb=float(body.get("free_gb") or 0), tools_ready=bool(body.get("tools_ready")),
+                 free_gb=float(body.get("free_gb") or 0), os=osname, platforms=plats,
                  xcode=body.get("xcode"), version=body.get("version"), user=body.get("user") or w.get("user"),
                  info=clean_info(body.get("info")), self_update=bool(body.get("self_update")),
                  update_error=body["update_error"][:300] if isinstance(body.get("update_error"), str) else None)
@@ -1170,7 +1192,7 @@ def describe(i):
     """mac-mini-2.example.ts.net 100.64.0.12 · Apple M1 Max (MacBookPro18,2) · macOS 26.7.2 · …"""
     parts = [" ".join(x for x in (i.get("dns"), i.get("tailnet_ip")) if x),
              "%s (%s)" % (i["chip"], i["model"]) if i.get("chip") and i.get("model") else i.get("chip") or i.get("model"),
-             "macOS " + i["macos"] if i.get("macos") else None,
+             "macOS " + i["macos"] if i.get("macos") else i.get("distro"),
              "LAN %s %s" % (i.get("lan_if", "?"), i["lan_ip"]) if i.get("lan_ip") else None,
              "host " + i["host"] if i.get("host") else None,
              "tailnet " + i["tailnet"] if i.get("tailnet") else None]
@@ -1180,12 +1202,14 @@ def describe(i):
 def status():
     t = time.time()
     with lock:
-        out = ["%-17s %-22s %-8s %-11s %s" % ("MAC", "STATE", "SLOTS", "FREE RAM", "XCODE")]
+        out = ["%-17s %-22s %-8s %-11s %-13s %s" % ("MAC", "STATE", "SLOTS", "FREE RAM", "BUILDS", "XCODE")]
         shown = shown_workers(t)
         for w in shown:
             st = worker_state(w, t)[1]
-            out.append("%-17s %-22s %-8s %-11s %s" % (w["label"], st, "%d/%d" % (used(w["label"]), w.get("slots", 0)),
-                                                      "%.0f/%d GB" % (w.get("free_gb", 0), w.get("ram_gb", 0)), w.get("xcode") or "-"))
+            out.append("%-17s %-22s %-8s %-11s %-13s %s" % (
+                w["label"], st, "%d/%d" % (used(w["label"]), w.get("slots", 0)),
+                "%.0f/%d GB" % (w.get("free_gb", 0), w.get("ram_gb", 0)), ",".join(w.get("platforms") or []) or "-",
+                w.get("xcode") or "-"))
         about = [(w["label"], describe(w.get("info") or {})) for w in shown]
         if any(d for _, d in about):
             out.append("")
@@ -1242,6 +1266,7 @@ def worker_summary(w, t, agent):
     return plain({"label": w["label"], "state": code, "state_text": text, "enabled": bool(w.get("enabled")),
                   "slots": w.get("slots", 0), "used": used(w["label"]), "ram_gb": w.get("ram_gb", 0),
                   "free_gb": w.get("free_gb", 0), "xcode": w.get("xcode"), "version": w.get("version"),
+                  "os": w.get("os", "macos"), "platforms": w.get("platforms") or [],
                   "user": w.get("user"), "seen": w.get("seen", 0), "boot": w.get("boot"),
                   "running": w.get("running", []), "info": w.get("info") or {},
                   "agent_current": bool(agent) and w.get("version") == agent, "self_update": bool(w.get("self_update")),

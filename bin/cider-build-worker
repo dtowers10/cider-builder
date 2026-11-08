@@ -1,13 +1,15 @@
 #!/usr/bin/python3
-# cider-build-worker: build agent for a fleet Mac. LaunchAgent of the user that builds.
-# Every 2 s it sends a heartbeat to the hub (RAM, free RAM, running jobs, tools, Mac details) and receives jobs or
-# cancel orders. Each job: downloads the source, runs build.sh, sends the log and uploads the result.
+# cider-build-worker: build agent for a fleet machine. On a Mac, a LaunchAgent of the user that builds; on Linux, a
+# systemd user service. Every 2 s it sends a heartbeat to the hub (RAM, free RAM, running jobs, the platforms it can
+# build, machine details) and receives jobs or cancel orders. Each job: downloads the source, runs build.sh, sends the log and uploads the result.
 # Configuration in ~/cider-build/worker.json: {"label": "mac-mini-2", "hub": "https://…:4710"}.
 # Python 3.9, no dependencies.
 import getpass
+import glob
 import hashlib
 import json
 import os
+import platform
 import secrets
 import shutil
 import signal
@@ -31,6 +33,17 @@ BEAT = 2
 LOG_CHUNK = 256 * 1024
 RESULT_PATIENCE = 1800  # s spent retrying result delivery while the hub does not respond
 UPDATE_RETRY = 60  # s between attempts when updating the agent fails
+OS = "macos" if sys.platform == "darwin" else "linux"
+# What each platform needs on this OS. install.sh puts it there and build.sh uses it from there.
+if OS == "macos":
+    NODE = ["/opt/homebrew/bin/node"]
+    TOOLS = {"ios": NODE + ["/opt/homebrew/bin/pod", "/opt/homebrew/bin/xcodegen"],
+             "android": NODE + ["/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin/java",
+                                os.path.join(HOME, "Library/Android/sdk/platform-tools/adb")]}
+else:
+    NODE = [os.path.join(DIR, "node/bin/node")]
+    TOOLS = {"android": NODE + ["/usr/lib/jvm/java-17-openjdk-*/bin/java",
+                                os.path.join(HOME, "Android/Sdk/platform-tools/adb")]}
 
 
 def agent_version(worker, build):
@@ -74,35 +87,53 @@ def gone(e):
     return isinstance(e, urllib.error.HTTPError) and e.code in (404, 409)
 
 
+def meminfo():
+    """/proc/meminfo in GB."""
+    out = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            k, v = line.split(":", 1)
+            out[k] = int(v.split()[0]) / float(1 << 20)
+    return out
+
+
 class Machine:
-    """Mac details sent with every heartbeat. Free RAM and tools are measured only every so often."""
+    """Machine details sent with every heartbeat. Free RAM and tools are measured only every so often."""
 
     def __init__(self):
-        self.ram_gb = int(subprocess.check_output(["/usr/sbin/sysctl", "-n", "hw.memsize"])) // (1 << 30)
+        if OS == "macos":
+            self.ram_gb = int(subprocess.check_output(["/usr/sbin/sysctl", "-n", "hw.memsize"])) // (1 << 30)
+        else:
+            self.ram_gb = int(round(meminfo()["MemTotal"]))
         self.free_gb, self.free_at = 0.0, 0
-        self.tools_ready, self.xcode, self.tools_at = False, None, 0
+        self.platforms, self.xcode, self.tools_at = [], None, 0
         self.info = {}
 
     def refresh(self):
         t = time.time()
         if t - self.free_at > 10:
             try:
-                out = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True, timeout=10).stdout
-                pct = int(out.rsplit(":", 1)[1].strip().rstrip("%"))
-                self.free_gb, self.free_at = round(self.ram_gb * pct / 100.0, 1), t
-            except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+                if OS == "macos":
+                    out = subprocess.run(["/usr/bin/memory_pressure", "-Q"], capture_output=True, text=True,
+                                         timeout=10).stdout
+                    pct = int(out.rsplit(":", 1)[1].strip().rstrip("%"))
+                    self.free_gb = round(self.ram_gb * pct / 100.0, 1)
+                else:
+                    self.free_gb = round(meminfo()["MemAvailable"], 1)
+                self.free_at = t
+            except (OSError, ValueError, IndexError, KeyError, subprocess.SubprocessError):
                 pass
         if t - self.tools_at > 300:
             self.tools_at = t
-            try:
-                self.xcode = subprocess.run(["/usr/bin/xcodebuild", "-version"], capture_output=True, text=True,
-                                            timeout=60).stdout.split("\n")[0].replace("Xcode ", "") or None
-            except (OSError, subprocess.SubprocessError):
-                self.xcode = None
-            need = ["/opt/homebrew/bin/node", "/opt/homebrew/bin/pod", "/opt/homebrew/bin/xcodegen", BUILD,
-                    "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home/bin/java",
-                    os.path.join(HOME, "Library/Android/sdk/platform-tools/adb")]
-            self.tools_ready = bool(self.xcode) and all(os.path.exists(p) for p in need)
+            self.xcode = None
+            if OS == "macos":
+                try:
+                    self.xcode = subprocess.run(["/usr/bin/xcodebuild", "-version"], capture_output=True, text=True,
+                                                timeout=60).stdout.split("\n")[0].replace("Xcode ", "") or None
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            self.platforms = [p for p, need in TOOLS.items()
+                              if os.path.exists(BUILD) and all(glob.glob(n) for n in need) and (p != "ios" or self.xcode)]
             self.info = host_info()
 
 
@@ -113,12 +144,33 @@ def cmd(*args):
         return ""
 
 
+def os_release():
+    try:
+        with open("/etc/os-release") as f:
+            pairs = dict(l.rstrip("\n").split("=", 1) for l in f if "=" in l)
+        return pairs.get("PRETTY_NAME", "").strip('"')
+    except OSError:
+        return ""
+
+
+def cpu_name():
+    try:
+        with open("/proc/cpuinfo") as f:
+            return next((l.split(":", 1)[1].strip() for l in f if l.startswith("model name")), "")
+    except OSError:
+        return ""
+
+
 def host_info():
-    """Name, network and hardware of the Mac, for `cider-build status`. Anything unreadable is left out."""
-    i = {"host": cmd("/usr/sbin/scutil", "--get", "LocalHostName"),
-         "chip": cmd("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"),
-         "model": cmd("/usr/sbin/sysctl", "-n", "hw.model"),
-         "macos": cmd("/usr/bin/sw_vers", "-productVersion")}
+    """Name, network and hardware of the machine, for `cider-build status`. Anything unreadable is left out."""
+    if OS == "macos":
+        i = {"host": cmd("/usr/sbin/scutil", "--get", "LocalHostName"),
+             "chip": cmd("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string"),
+             "model": cmd("/usr/sbin/sysctl", "-n", "hw.model"),
+             "macos": cmd("/usr/bin/sw_vers", "-productVersion")}
+    else:
+        i = {"host": platform.node().split(".")[0], "chip": cpu_name(), "model": platform.machine(),
+             "distro": os_release()}
     try:
         st = json.loads(cmd(shutil.which("tailscale") or "tailscale", "status", "--json"))
         i["dns"] = st["Self"]["DNSName"].rstrip(".")
@@ -126,10 +178,15 @@ def host_info():
         i["tailnet"] = (st.get("CurrentTailnet") or {}).get("Name", "")
     except (ValueError, KeyError, TypeError):
         pass
-    route = cmd("/sbin/route", "-n", "get", "default")
-    lan_if = next((l.split(":", 1)[1].strip() for l in route.splitlines() if l.strip().startswith("interface:")), "")
-    if lan_if:
-        i["lan_if"], i["lan_ip"] = lan_if, cmd("/usr/sbin/ipconfig", "getifaddr", lan_if)
+    if OS == "macos":
+        route = cmd("/sbin/route", "-n", "get", "default")
+        lan_if = next((l.split(":", 1)[1].strip() for l in route.splitlines() if l.strip().startswith("interface:")), "")
+        if lan_if:
+            i["lan_if"], i["lan_ip"] = lan_if, cmd("/usr/sbin/ipconfig", "getifaddr", lan_if)
+    else:
+        words = cmd("ip", "-o", "-4", "route", "get", "1.1.1.1").split()
+        after = {a: b for a, b in zip(words, words[1:])}
+        i["lan_if"], i["lan_ip"] = after.get("dev", ""), after.get("src", "")
     return {k: v for k, v in i.items() if v}
 
 
@@ -173,7 +230,7 @@ class Run:
             os.makedirs(os.path.join(st, "src"), exist_ok=True)
             os.makedirs(LOGS, exist_ok=True)
             self.download(os.path.join(st, "src.tar.gz"))
-            subprocess.run(["/usr/bin/tar", "-xzf", os.path.join(st, "src.tar.gz"), "-C", os.path.join(st, "src")], check=True)
+            subprocess.run(["tar", "-xzf", os.path.join(st, "src.tar.gz"), "-C", os.path.join(st, "src")], check=True)
             env = dict(os.environ, KIND=j["kind"], PLAT=j["plat"], PROJ=j["proj"], KEY=j["key"], OUT=out,
                        STAGE=os.path.join(st, "src"), EXCL="", MB_SCHEME="", MB_CONTAINER="", MB_CONFIG="Debug",
                        MB_TASK="assembleDebug", MB_APK="")
@@ -318,7 +375,7 @@ def main():
         with lock:
             ids = list(running)
         body = {"label": LABEL, "boot": BOOT, "user": user, "ram_gb": m.ram_gb, "free_gb": m.free_gb, "running": ids,
-                "tools_ready": m.tools_ready, "xcode": m.xcode, "version": VERSION, "info": m.info,
+                "os": OS, "platforms": m.platforms, "xcode": m.xcode, "version": VERSION, "info": m.info,
                 "self_update": True, "update_error": update_error}
         try:
             resp = json.loads(http("POST", "/w/heartbeat", json.dumps(body).encode(), timeout=15))

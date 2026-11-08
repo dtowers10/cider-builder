@@ -102,6 +102,13 @@ const t = {
     await sleep(150);
     note("click " + selector + (text === undefined ? "" : " " + JSON.stringify(text)));
   },
+  async clickAt(x, y) {
+    for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) {
+      await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: type === "mouseMoved" ? 0 : 1 });
+    }
+    await sleep(150);
+    note("click at " + x + "," + y);
+  },
   async press(key) {
     const code = KEYS[key];
     const text = key === "Enter" ? "\r" : key.length === 1 ? key : undefined;

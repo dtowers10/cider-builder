@@ -34,10 +34,11 @@ Seeded state, which `features/README.md` relies on:
 | mac-epsilon | missing tools | 0/1 | outdated, can update itself |
 | mac-gamma | no heartbeat | 0/2 | outdated, needs `cider-build add` |
 | mac-zeta | disabled (but sends heartbeats) | 0/2 | outdated, needs `cider-build add` |
+| linux-delta | online, Linux, builds Android only | 1/1, building `scanner android` | outdated, can update itself |
 
-Also seeded: the queue (`scanner android` and `demo android` with source, `shop ios` with no source); 42 finished jobs spread over about 4 days (done, failed with rc 65, cancelled), 2 of them failed in the last 24 h; 4 cache projects with 2 artifacts each; affinity for each project.
+Also seeded: the queue (`scanner android` and `demo android` with source, which wait for linux-delta because Android stays off the Macs while a Linux machine is in the pool, and `shop ios` with no source); 42 finished jobs spread over about 4 days (done, failed with rc 65, cancelled), 2 of them failed in the last 24 h; 4 cache projects with 2 artifacts each; affinity for each project.
 
-For Updates: the hub's `hub.json` names a local repository at `/tmp/verify-hub/run-<id>/repo` as `update_url` (with `--no-updates` it is `off`, and hub updates are off). Its first commit is what `home/bin` holds (this checkout's release files, named in `bin/.commit`), and `main` is one commit ahead with the subject `Panel: show each build's estimated time left`, so the hub shows an update available, 1 commit behind. All Macs report agent `2026.10.3`, older than what the hub hands out. A fake Mac asked to update reports the requested version on its next heartbeat; a real agent first waits for its builds to end.
+For Updates: the hub's `hub.json` names a local repository at `/tmp/verify-hub/run-<id>/repo` as `update_url` (with `--no-updates` it is `off`, and hub updates are off). Its first commit is what `home/bin` holds (this checkout's release files, named in `bin/.commit`), and `main` is one commit ahead with the subject `Panel: show each build's estimated time left`, so the hub shows an update available, 1 commit behind. All machines report agent `2026.10.3`, older than what the hub hands out. A fake Mac asked to update reports the requested version on its next heartbeat; a real agent first waits for its builds to end.
 
 A real hub, read-only:
 
@@ -77,12 +78,14 @@ The `t` object passed to a journey has these helpers:
 |---|---|
 | `t.nav("/#/history")` | A cold load in a fresh document, like opening a link in a new tab. Change the hash with `t.click` or `t.ev('location.hash = "#/macs"')` instead when you want in-app navigation. |
 | `t.click(selector, text?)` | A real mouse click at the element's centre. `text` picks, among the matches, the one whose trimmed text equals it, e.g. `t.click("#drawer-body button", "Disable")`. |
+| `t.clickAt(x, y)` | A real mouse click at a viewport point, for what `t.click` cannot hit at an element's centre, such as the drawer's backdrop: at 1280 px the drawer (`min(820px, 100vw)`) covers the backdrop's centre, so click at `(100, 400)`. |
 | `t.press("Tab" \| "Enter" \| "Escape" \| "ArrowDown" \| "ArrowUp")` | A real key event to the focused element |
 | `t.type(selector, text)` | Click, select the field's content, then insert text |
 | `t.select(selector, value)` | Focus a native `<select>` and move with the arrow keys until it holds `value` |
 | `t.size(w, h)` | Viewport size. Use 390x800 for the narrow layout (the breakpoint is 860 px). |
 | `t.back()`, `t.forward()` | Browser history |
 | `t.ev(expr)`, `t.waitFor(expr, ms)` | Read page state. Use them for assertions, never to perform the user's action. |
+| `t.sleep(ms)` | Wait a fixed time. Prefer `t.waitFor`; use it only to let a timer tick. |
 | `t.check(name, ok, detail?)` | Record a check. The first failure stops the journey unless `--keep-going`. |
 | `t.shot(name)`, `t.aria(name)` | A screenshot, and an ARIA tree as text |
 

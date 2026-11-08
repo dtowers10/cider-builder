@@ -1,5 +1,5 @@
 // features/updates.md: the Updates view on a seeded run (its repository is one commit ahead of what the hub
-// runs, and mac-alpha, mac-beta and mac-epsilon run an old agent that can update itself; mac-zeta cannot).
+// runs, and mac-alpha, mac-beta, mac-epsilon and linux-delta run an old agent that can update itself; mac-zeta cannot).
 // Updates mac-beta from its row, mac-epsilon from its drawer and the rest with "Update all outdated".
 // Never clicks "Update hub": the seeded hub has no launchd to start it again (verification/hub-update.py proves it).
 const SUBJECT = "Panel: show each build's estimated time left";
@@ -20,7 +20,7 @@ export default async (t) => {
   await t.nav("/");
   t.check("updates-nav: the Updates entry has a dot for the hub and a count of outdated agents",
     await t.waitFor(`/hub update available/.test(document.querySelector('#nav a[href="#/updates"] .nav-count').textContent)`, 8000)
-    && (await t.ev(`document.querySelector('#nav a[href="#/updates"] .nav-count').textContent`)).includes("5"));
+    && (await t.ev(`document.querySelector('#nav a[href="#/updates"] .nav-count').textContent`)).includes("6"));
   await t.click('#nav a[href="#/updates"]');
   await t.waitFor(`document.getElementById("up-hub").textContent.includes("update available")`, 8000);
   const hub = await t.ev(`document.getElementById("up-hub").textContent`);
@@ -76,10 +76,10 @@ export default async (t) => {
   await t.shot("updates-drawer-epsilon");
   await t.click("#drawer-close");
 
-  t.check("updates-all: one outdated Mac left that can update", await t.ev(`[...document.querySelectorAll("#up-agents button")].some((b) => b.textContent === "Update all outdated (1)")`));
-  await t.click("#up-agents button", "Update all outdated (1)");
+  t.check("updates-all: two outdated machines left that can update", await t.ev(`[...document.querySelectorAll("#up-agents button")].some((b) => b.textContent === "Update all outdated (2)")`));
+  await t.click("#up-agents button", "Update all outdated (2)");
   await t.click("#confirm-yes");
-  await toast("Update all: 1 updating");
+  await toast("Update all: 2 updating");
   await t.waitFor(`${row("mac-alpha")}.textContent.includes("current")`, 10000);
   const s = await state();
   t.check("updates-all: every Mac that can update itself is current; mac-zeta still needs cider-build add",

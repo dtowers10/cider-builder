@@ -89,6 +89,17 @@ export default async (t) => {
   await t.click("#drawer-close");
   t.check("nav-url: Close on a cold-loaded drawer leaves #/cache", (await t.ev("location.hash")) === "#/cache");
 
+  await t.nav("/#/overview");
+  await t.ev('location.hash = "#/nope"');
+  await t.waitFor(`location.hash === "#/overview"`, 3000);
+  t.check("nav-url: an unknown hash lands on Overview and is rewritten to #/overview", (await shown()) === "overview");
+  await t.click('#nav a[href="#/macs"]');
+  await t.click('#maclist a.card[href="#mac/mac-gamma"]');
+  await t.waitFor(`!document.getElementById("drawer").hidden`);
+  await t.clickAt(100, 400);
+  t.check("nav-drawer: a click on the backdrop beside the drawer closes it and keeps the view",
+    (await drawer()) === null && (await t.ev("location.hash")) === "#/macs");
+
   await t.size(390, 800);
   await t.nav("/#/overview");
   t.check("nav-narrow: the sidebar is collapsed behind Menu",
@@ -106,4 +117,8 @@ export default async (t) => {
   await t.click(`#nav a[href="#/history"]`);
   t.check("nav-narrow: picking an item opens it and closes the menu",
     (await shown()) === "history" && (await t.ev(`document.getElementById("menu-btn").getAttribute("aria-expanded")`)) === "false");
+  await t.click("#menu-btn");
+  await t.click("#menu-btn");
+  t.check("nav-narrow: pressing Menu again closes it",
+    (await t.ev(`document.getElementById("menu-btn").getAttribute("aria-expanded")`)) === "false");
 };

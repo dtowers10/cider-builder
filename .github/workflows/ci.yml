@@ -64,6 +64,7 @@ jobs:
       - run: python verification/install-client.py
       - run: python verification/install-hub.py
       - run: python verification/hub-run-matches-attempt.py
+      - run: python verification/hub-platforms.py
       - run: python verification/run-order.py
       - run: python verification/source-delta.py
       - run: python verification/hub-update.py

@@ -10,7 +10,7 @@ export default async (t) => {
   t.check("updates-off: /api/state has no update source and the hub never checked", rel.source === null && rel.checked === null,
     JSON.stringify(rel));
   t.check("updates-off-nav: the Updates entry counts the outdated agents and has no hub dot",
-    await t.waitFor(`/5/.test(document.querySelector('#nav a[href="#/updates"] .nav-count').textContent)`, 8000)
+    await t.waitFor(`/6/.test(document.querySelector('#nav a[href="#/updates"] .nav-count').textContent)`, 8000)
     && !(await navCount()).includes("hub update available"), await navCount());
 
   await t.click('#nav a[href="#/updates"]');
