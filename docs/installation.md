@@ -61,3 +61,19 @@ cider-build add mac-studio 3 --user ci   # 3 slots, builds as the macOS user ci
 ```
 
 `cider-build remove <mac>` stops sending it jobs, waits for its own to finish and removes its agent. On the Mac itself, `curl -fsSL http://buildhub:4711/join | bash -s -- --remove` does the same.
+
+**4. Linux machines that build Android.** An x86-64 Linux machine on the tailnet joins with the same command, as the user that will build:
+
+```bash
+curl -fsSL http://buildhub:4711/join | bash
+```
+
+It builds Android only. While at least one Linux machine is in the pool, the hub sends every Android build to the Linux machines and keeps the Macs for iOS. If no Linux machine can take builds (all of them off, drained, updating or without tools), Android goes back to the Macs. A full Linux machine does not count as gone: Android builds wait for a free Linux slot.
+
+On Linux the script:
+- Refuses to continue on anything but x86-64, because Google ships no Linux arm64 build tools.
+- Installs with `apt-get` whatever is missing among JDK 17 (`openjdk-17-jdk-headless`), rsync, unzip, git and xz, asking for the password through sudo. On a distribution without apt, install those by hand (the JDK under `/usr/lib/jvm/java-17-openjdk-*`) and repeat.
+- Installs node 22 from nodejs.org in `~/cider-build/node`, checked against its published SHA-256, and the Android command-line tools, platform 36 and build tools 36 in `~/Android/Sdk`. `CIDER_BUILD_ANDROID_TOOLS` points at another command-line tools zip.
+- Runs the agent as the systemd user service `cider-build-worker` and turns on lingering for that user (`loginctl enable-linger`), so it starts at boot with nobody logged in. Its log is `~/cider-build/worker.log`.
+
+`cider-build add <machine>` and `cider-build remove <machine>` work the same over Tailscale SSH. As root, `add` builds as the user that already has the agent, or the one given with `--user`.

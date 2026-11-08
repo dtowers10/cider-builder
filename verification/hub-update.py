@@ -290,7 +290,7 @@ try:
         pass
 
     class Machine:
-        ram_gb, free_gb, tools_ready, xcode, info = 32, 16.0, True, "16.0", {}
+        ram_gb, free_gb, platforms, xcode, info = 32, 16.0, ["ios", "android"], "16.0", {}
 
         def refresh(self):
             pass

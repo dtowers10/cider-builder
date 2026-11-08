@@ -43,11 +43,13 @@ MACS = {
     "mac-epsilon": (1, 24, 18.0, False, True, True, True),
     "mac-gamma": (2, 48, 30.0, True, True, False, True),
     "mac-zeta": (2, 48, 40.0, True, False, True, False),
+    "linux-delta": (1, 32, 12.0, True, True, True, True),
 }
+LINUX = {"linux-delta"}  # an x86-64 Linux machine: builds Android only
 OLD_AGENT = "2026.10.3"
 NEXT_SUBJECT = "Panel: show each build's estimated time left"
 EXPECTED_STATES = {"mac-alpha": "online", "mac-beta": "online", "mac-epsilon": "no_tools", "mac-gamma": "stale",
-                   "mac-zeta": "disabled"}
+                   "mac-zeta": "disabled", "linux-delta": "online"}
 READ_PATHS = ("/api/state", "/api/history", "/api/cache", "/api/job", "/poll")
 
 
@@ -168,16 +170,24 @@ def seed_repo(repo, home):
     git("commit", "-q", "-am", NEXT_SUBJECT)
 
 
+def machine(label, tools):
+    """What the agent on that machine reports: its OS, the platforms it builds, Xcode and its details."""
+    if label in LINUX:
+        return {"os": "linux", "platforms": ["android"] if tools else [], "xcode": None,
+                "info": {"chip": "AMD EPYC 7B13", "model": "x86_64", "distro": "Ubuntu 24.04.3 LTS", "host": label,
+                         "dns": label + ".example.ts.net", "tailnet": "example.ts.net"}}
+    return {"os": "macos", "platforms": ["ios", "android"] if tools else [], "xcode": "16.4",
+            "info": {"chip": "Apple M2 Pro", "model": "Mac14,12", "macos": "15.5", "host": label,
+                     "dns": label + ".example.ts.net", "tailnet": "example.ts.net"}}
+
+
 def seed(home, t0):
     for d in ("jobs", "workers", "cache", "bin"):
         os.makedirs(os.path.join(home, d))
     for label, (slots, ram, free, tools, enabled, beats, _) in MACS.items():
-        write_json(os.path.join(home, "workers", label + ".json"), {
+        write_json(os.path.join(home, "workers", label + ".json"), dict(machine(label, tools), **{
             "label": label, "enabled": enabled, "slots": slots, "user": "builder", "ram_gb": ram, "free_gb": free,
-            "seen": t0 if beats else t0 - 3600, "boot": "boot-" + label, "running": [], "tools_ready": tools,
-            "xcode": "16.4", "version": OLD_AGENT,
-            "info": {"chip": "Apple M2 Pro", "model": "Mac14,12", "macos": "15.5", "host": label,
-                     "dns": label + ".example.ts.net", "tailnet": "example.ts.net"}})
+            "seen": t0 if beats else t0 - 3600, "boot": "boot-" + label, "running": [], "version": OLD_AGENT}))
     n = [0]
 
     def job(state, proj, plat, created, worker=None, started=None, finished=None, rc=None, log=""):
@@ -197,6 +207,7 @@ def seed(home, t0):
         job("building", "demo", "ios", t0 - 300, "mac-alpha", t0 - 290, log="cider-build: building demo on mac-alpha\n"): "mac-alpha",
         job("building", "shop", "android", t0 - 120, "mac-alpha", t0 - 110, log="> Task :app:assembleRelease\n"): "mac-alpha",
         job("building", "ledger", "ios", t0 - 60, "mac-beta", t0 - 55, log="** BUILD START **\n"): "mac-beta",
+        job("building", "scanner", "android", t0 - 90, "linux-delta", t0 - 85, log="> Task :app:mergeDebugResources\n"): "linux-delta",
     }
     job("queued", "scanner", "android", t0 - 40)
     job("queued", "demo", "android", t0 - 30)
@@ -234,11 +245,8 @@ def fleet(run):
         for label, (slots, ram, free, tools, enabled, beats, self_update) in MACS.items():
             if not beats:
                 continue
-            body = {"label": label, "boot": "boot-" + label, "running": sorted(running[label]), "ram_gb": ram,
-                    "free_gb": free, "tools_ready": tools, "xcode": "16.4", "version": version[label], "user": "builder",
-                    "self_update": self_update,
-                    "info": {"chip": "Apple M2 Pro", "model": "Mac14,12", "macos": "15.5", "host": label,
-                             "dns": label + ".example.ts.net", "tailnet": "example.ts.net"}}
+            body = dict(machine(label, tools), label=label, boot="boot-" + label, running=sorted(running[label]),
+                        ram_gb=ram, free_gb=free, version=version[label], user="builder", self_update=self_update)
             try:
                 code, _, raw = request("POST", base + "/w/heartbeat", json.dumps(body).encode())
                 reply = json.loads(raw) if code == 200 else {}
@@ -386,8 +394,8 @@ def usable(st):
     rel = s["release"]
     updates = (rel["available"] and rel["behind"] == 1 and rel["phase"] == "idle" if st["updates"]
                else rel["source"] is None and rel["checked"] is None)
-    return (states == EXPECTED_STATES and len(building) == 3 and s["hub"]["url"] == st["canonical"] and updates
-            and sum(1 for w in s["workers"] if w["self_update"] and not w["agent_current"]) == 3
+    return (states == EXPECTED_STATES and len(building) == 4 and s["hub"]["url"] == st["canonical"] and updates
+            and sum(1 for w in s["workers"] if w["self_update"] and not w["agent_current"]) == 4
             and len(get_json(base, "/api/history")["jobs"]) >= 42 and len(get_json(base, "/api/cache")["projects"]) == 4
             and request("GET", "http://127.0.0.1:%d/join" % st["tailnet_port"])[0] == 200)
 

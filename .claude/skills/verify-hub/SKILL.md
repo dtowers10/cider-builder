@@ -34,8 +34,9 @@ Seeded state, which `features/README.md` relies on:
 | mac-epsilon | missing tools | 0/1 | outdated, can update itself |
 | mac-gamma | no heartbeat | 0/2 | outdated, needs `cider-build add` |
 | mac-zeta | disabled (but sends heartbeats) | 0/2 | outdated, needs `cider-build add` |
+| linux-delta | online, Linux, builds Android only | 1/1, building `scanner android` | outdated, can update itself |
 
-Also seeded: the queue (`scanner android` and `demo android` with source, `shop ios` with no source); 42 finished jobs spread over about 4 days (done, failed with rc 65, cancelled), 2 of them failed in the last 24 h; 4 cache projects with 2 artifacts each; affinity for each project.
+Also seeded: the queue (`scanner android` and `demo android` with source, which wait for linux-delta because Android stays off the Macs while a Linux machine is in the pool, and `shop ios` with no source); 42 finished jobs spread over about 4 days (done, failed with rc 65, cancelled), 2 of them failed in the last 24 h; 4 cache projects with 2 artifacts each; affinity for each project.
 
 For Updates: the hub's `hub.json` names a local repository at `/tmp/verify-hub/run-<id>/repo` as `update_url` (with `--no-updates` it is `off`, and hub updates are off). Its first commit is what `home/bin` holds (this checkout's release files, named in `bin/.commit`), and `main` is one commit ahead with the subject `Panel: show each build's estimated time left`, so the hub shows an update available, 1 commit behind. All Macs report agent `2026.10.3`, older than what the hub hands out. A fake Mac asked to update reports the requested version on its next heartbeat; a real agent first waits for its builds to end.
 

@@ -427,7 +427,7 @@ function infoLines(i) {
   const join = (...xs) => xs.filter((x) => x != null && x !== "").map(show).join(" · ");
   const lines = [
     i.chip || i.model ? (i.chip && i.model ? show(i.chip) + " (" + show(i.model) + ")" : show(i.chip || i.model)) : "",
-    i.macos ? "macOS " + show(i.macos) : "",
+    i.macos ? "macOS " + show(i.macos) : i.distro ? show(i.distro) : "",
     join(i.dns, i.tailnet_ip),
     i.lan_ip ? "LAN " + show(i.lan_if || "?") + " " + show(i.lan_ip) : "",
     join(i.host ? "host " + show(i.host) : "", i.tailnet ? "tailnet " + show(i.tailnet) : ""),
@@ -440,8 +440,13 @@ function macCard(w) {
     h("div", { class: "card-head" }, h("strong", { class: "mono" }, show(w.label)), badge(w.state)),
     meter("Slots", num(w.used), num(w.slots), num(w.used) + "/" + num(w.slots)),
     meter("RAM", ram - free, ram, Math.round(free) + " GB free of " + ram),
-    kv([["Xcode", w.xcode], ["Agent", agentText(w)], ["User", w.user], ["Heartbeat", agoEl(w.seen)]]),
+    kv([["Builds", buildsText(w)], w.xcode ? ["Xcode", w.xcode] : null, ["Agent", agentText(w)], ["User", w.user], ["Heartbeat", agoEl(w.seen)]]),
     infoLines(w.info));
+}
+const PLAT_NAME = { ios: "iOS", android: "Android" };
+function buildsText(w) {
+  const ps = Array.isArray(w.platforms) ? w.platforms.map((p) => PLAT_NAME[p] || show(p)) : [];
+  return (ps.length ? ps.join(", ") : "nothing yet") + (w.os === "linux" ? " (Linux)" : "");
 }
 function agentText(w) { return show(w.version) + (w.agent_current ? "" : " (outdated)"); }
 function renderMacs(ws) {
@@ -592,13 +597,14 @@ function renderJoin(hub) {
   const refused = (hub.label ? "The hub itself (" + show(hub.label) + ")" : "The hub itself") +
     (excluded.length ? " and " + excluded.join(", ") + ", in the hub's exclude setting, refuse" : " refuses") + " to join.";
   $("join").replaceChildren(...[
-    h("p", { class: "note" }, "On the new Mac, as the user that will build, paste one of these into Terminal:"),
+    h("p", { class: "note" }, "On the new Mac or Linux machine, as the user that will build, paste one of these into a terminal:"),
     hub.ip ? cmd("curl -fsSL http://" + show(hub.ip) + ":" + port + "/join | bash") : h("p", { class: "hint" }, "The hub doesn't know its tailnet IP yet."),
     short ? cmd("curl -fsSL http://" + short + ":" + port + "/join | bash -s -- --slots 2") : null,
     h("p", { class: "note" }, "From a client, over Tailscale SSH as root (slots are optional; the default is 1 per 24 GB of RAM):"),
     cmd("cider-build add <mac> [slots]"),
     cmd("cider-build remove <mac>"),
-    h("p", { class: "note" }, "Xcode must already be installed on the Mac, because it asks for an Apple ID. " + refused)].filter(Boolean));
+    h("p", { class: "note" }, "Xcode must already be installed on the Mac, because it asks for an Apple ID. " + refused),
+    h("p", { class: "note" }, "A Linux machine (x86-64, with apt) builds Android only. While one is in the pool, Android builds go to the Linux machines and the Macs keep to iOS.")].filter(Boolean));
 }
 
 // --- updates: the hub from its git repository (if it has one), the agents from the hub -----------
@@ -924,7 +930,7 @@ function renderMac(v) {
   if (v.actionsKey !== key) { v.actionsKey = key; v.actions.replaceChildren(macActions(w)); }
   v.top.replaceChildren(kv([["State", badge(w.state)], ["Enabled", w.enabled ? "yes" : "no"],
         ["Slots", num(w.used) + " in use of " + num(w.slots)], ["RAM", Math.round(free) + " GB free of " + ram + " GB"],
-        ["Xcode", w.xcode], ["Agent", agentText(w)], w.update_error ? ["Agent update", h("span", { class: "err" }, show(w.update_error))] : null,
+        ["Builds", buildsText(w)], w.xcode ? ["Xcode", w.xcode] : null, ["Agent", agentText(w)], w.update_error ? ["Agent update", h("span", { class: "err" }, show(w.update_error))] : null,
         ["User", w.user], ["Last heartbeat", agoEl(w.seen)],
         ["Agent boot", h("span", { class: "mono" }, show(w.boot))],
         ["Jobs it reports", (w.running || []).length ? h("span", { class: "mono" }, (Array.isArray(w.running) ? w.running : [w.running]).map(show).join(" ")) : "none"],

@@ -1,12 +1,20 @@
 #!/bin/bash
-# Builds a project on this Mac. cider-build-worker launches it with the source already unpacked in $STAGE.
+# Builds a project on this machine (a Mac, or a Linux machine for Android). cider-build-worker launches it with the
+# source already unpacked in $STAGE.
 # Input (environment): KIND PLAT PROJ KEY OUT STAGE EXCL MB_SCHEME MB_CONTAINER MB_CONFIG MB_TASK MB_APK.
 # Output: $OUT, which the agent picks per attempt. The log is standard output (the agent stores it).
 set -euo pipefail
-export PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk@17/bin:/usr/bin:/bin:/usr/sbin:/sbin
 export LANG=en_US.UTF-8 CI=1 EXPO_NO_TELEMETRY=1 COCOAPODS_DISABLE_STATS=1
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
-export ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk
+if [ "$(uname -s)" = Darwin ]; then
+  export PATH=/opt/homebrew/bin:/opt/homebrew/opt/openjdk@17/bin:/usr/bin:/bin:/usr/sbin:/sbin
+  export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ANDROID_HOME=$HOME/Library/Android/sdk
+else # install.sh worker: node in the agent's folder, the distribution's JDK 17, the SDK in ~/Android/Sdk
+  jdk=(/usr/lib/jvm/java-17-openjdk-*)
+  export JAVA_HOME=${jdk[0]} ANDROID_HOME=$HOME/Android/Sdk LANG=C.UTF-8
+  export PATH=${0%/*}/node/bin:$JAVA_HOME/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+fi
+export ANDROID_SDK_ROOT=$ANDROID_HOME
+sha() { if command -v shasum >/dev/null; then shasum; else sha1sum; fi; }
 B=$HOME/builds
 src=$B/src/$PROJ-$PLAT dd=$B/dd/$PROJ out=$OUT
 mkdir -p "$src" "$dd" "$(dirname "$out")"
@@ -14,7 +22,7 @@ lock=$B/.lock-$PROJ-$PLAT
 until mkdir "$lock" 2>/dev/null; do
   pid=$(cat "$lock/pid" 2>/dev/null || true)
   if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -rf "$lock"; continue; fi
-  echo "Waiting for another build of $PROJ ($PLAT) on this Mac…"; sleep 15
+  echo "Waiting for another build of $PROJ ($PLAT) on this machine…"; sleep 15
 done
 echo $$ >"$lock/pid"; trap 'rm -rf "$lock"' EXIT
 # Excluded paths are not deleted from the destination: node_modules, Pods and build/ survive between builds.
@@ -24,7 +32,7 @@ cd "$src"
 
 deps() { # node_modules is reused as long as package.json and the lockfile do not change
   local h stamp=$B/src/.deps-$PROJ-$PLAT
-  h=$({ cat package.json package-lock.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb 2>/dev/null || true; } | shasum | cut -c1-40)
+  h=$({ cat package.json package-lock.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb 2>/dev/null || true; } | sha | cut -c1-40)
   if [ -d node_modules ] && [ "$(cat "$stamp" 2>/dev/null)" = "$h" ]; then return 0; fi
   if [ -f pnpm-lock.yaml ]; then corepack pnpm install --frozen-lockfile
   elif [ -f yarn.lock ]; then corepack yarn install --immutable 2>/dev/null || corepack yarn install --frozen-lockfile
