@@ -40,10 +40,10 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 | Feature | File | Proven journey |
 |---|---|---|
 | Sidebar navigation and routes | [navigation.md](./navigation.md) | `journeys/navigation.mjs` |
-| Macs and their actions | [macs.md](./macs.md) | none yet |
-| Running jobs, queue, live log and cancel | [builds.md](./builds.md) | `journeys/warm.mjs` (warmed jobs in the queue and drawer only; run `cider-build warm` in a folder named `warmproj` first) |
-| History search and filters | [history.md](./history.md) | none yet |
-| Cache, affinity and Add a Mac | [cache-and-add.md](./cache-and-add.md) | none yet |
+| Macs and their actions | [macs.md](./macs.md) | `journeys/macs.mjs` (changes mac-beta; own run); `journeys/linux.mjs` (the Linux machine and the Builds row) |
+| Running jobs, queue, live log and cancel | [builds.md](./builds.md) | `journeys/builds.mjs` (cancels a queued job; own run); `journeys/warm.mjs` (warmed jobs in the queue and drawer only; run `cider-build warm` in a folder named `warmproj` first) |
+| History search and filters | [history.md](./history.md) | `journeys/history.mjs` |
+| Cache, affinity and Add a Mac | [cache-and-add.md](./cache-and-add.md) | `journeys/cache-add.mjs`; `journeys/cache-delete.mjs` (mutates); `journeys/cache-eviction.mjs` (needs the setup in its Eviction step) |
 | Updates: the hub from its git repository, the agents from the hub | [updates.md](./updates.md) | `journeys/updates.mjs`; `journeys/updates-off.mjs` on a run started with `up --no-updates` |
 
 When you prove a feature, add its journey to `../journeys/` and to this table.

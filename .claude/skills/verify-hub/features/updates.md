@@ -1,6 +1,6 @@
 # Updates: the hub from its git repository, the agents from the hub
 
-Fleet > Updates compares what the hub runs with the tip of the branch of its update source (`update_url` and `update_branch` in the hub's `hub.json`) and shows the branch's changelog: its last 30 changes, newest first, each marked installed or pending. A GitHub merge or squash shows as its PR's title and number. "Check for updates" asks the hub to fetch again, and "Update hub" installs the tip after the hub has compiled it and test-started it. A hub with no `update_url` has hub updates off: the section says so and shows the command that turns them on, with no hub buttons. Below, in both cases, one row per Mac shows its agent version against the one the hub hands out. "Update agent" asks that Mac to take no new builds, finish the ones it has, download the new agent and restart. The Mac drawer has the same button, and agents too old to update themselves say to run `cider-build add <mac>` once.
+Fleet > Updates compares what the hub runs with the tip of the branch of its update source (`update_url` and `update_branch` in the hub's `hub.json`) and shows the branch's changelog: its last 30 changes, newest first, each marked installed or pending. A GitHub merge or squash shows as its PR's title and number. "Check for updates" asks the hub to fetch again, and "Update hub" installs the tip after the hub has compiled it and test-started it. A hub with no `update_url` has hub updates off: the section says so and shows the command that turns them on, with no hub buttons. Below, in both cases, one row per builder machine (Mac or Linux) shows its agent version against the one the hub hands out. "Update agent" asks that machine to take no new builds, finish the ones it has, download the new agent and restart. The Mac drawer has the same button, and agents too old to update themselves say to run `cider-build add <mac>` once.
 
 ## Sub-features
 
@@ -9,12 +9,12 @@ Fleet > Updates compares what the hub runs with the tip of the branch of its upd
 - `updates-changelog` lists every change on the branch, not only the ones the hub lacks: the new one marked pending and the installed one marked installed.
 - `updates-check` asks for a check with "Check for updates", which answers with a toast, and the check time moves forward in `/api/state`.
 - `updates-error` shows the hub's error from the last check or update. When it looks like an ssh or auth failure, it adds the hub's public key (`update_ssh_key` + `.pub`) with a Copy button, or, with no key, how to get one.
-- `updates-hub-update` enables "Update hub" only when an update is available and the hub is idle, and confirms before calling `POST /hub/update`. The seeded run does not drive it (see Gotchas).
+- `updates-hub-update` enables "Update hub" only when an update is available and the hub is idle, and confirms before calling `POST /hub/update`. The confirmation names the target commit and subject and says the previous files stay in `~/cider-build/bin/.previous`. The panel has no rollback button. The seeded run does not drive it (see Gotchas).
 - `updates-off` on a hub with no update source (`update_url` unset or `off`): the hub section says "Hub updates are off", shows `bash ~/cider-build/bin/install.sh hub --set update_url=<git URL>` with a Copy button and has no Check or Update button. `/api/state` has `release.source` null and the hub never checks.
-- `updates-agents` lists every Mac with its agent and an action: "Update agent", "updating", "current", or "run cider-build add <mac> once".
+- `updates-agents` lists every machine with its agent and an action: "Update agent", "updating", "current", or "run cider-build add <mac> once".
 - `updates-agent` updates one Mac after a confirmation. Its row goes to "updating", then "current". "Keep it" changes nothing.
 - `updates-drawer` marks the agent "(outdated)" in the Mac's drawer and offers "Update agent" there.
-- `updates-all` updates every Mac that can update itself after one confirmation.
+- `updates-all` updates every machine that can update itself after one confirmation, which lists their labels.
 
 ## How to get to it (user POV)
 
@@ -29,14 +29,14 @@ Preconditions:
 - A fresh seeded run that passes `doctor`, with no earlier journey that updated agents. Its `hub.json` names the run's local repository as `update_url`. The hub's first check runs 5 s after it starts, and `up` waits for it.
 - For `updates-off`, a separate run started with `hubctl.py up --no-updates`, whose `hub.json` has no `update_url`.
 
-- **Nav.** Run `t.nav("/")`. The text of `#nav a[href="#/updates"] .nav-count` includes `hub update available` and `5`.
+- **Nav.** Run `t.nav("/")`. The text of `#nav a[href="#/updates"] .nav-count` includes `hub update available` and `6` (all six agents are outdated).
 - **Hub.** Run `t.click('#nav a[href="#/updates"]')`. `#up-hub` shows `Source` with the run's repository path and `· main`, both commits (12 characters each), `Latest on main` with the subject `Panel: show each build's estimated time left`, `update available` and `1 change not installed yet`. The changelog table has two rows: the new commit, pending, and the installed one, installed. Both `#up-hub` buttons are enabled.
 - **Check.** Run `t.click("#up-hub button", "Check for updates")`. A toast reads `Check for updates: checking`, and `/api/state` soon has a larger `release.checked` with `phase` back to `idle`.
 - **Refuse.** Find mac-beta's row index in `#up-agents tbody tr`, then run `t.click('#up-agents tbody tr:nth-child(<i>) button', "Update agent")` and `t.click("#confirm-no")`. `/api/state` still has mac-beta with `update` false.
 - **Update one.** Repeat with `t.click("#confirm-yes")`. A toast reads `Update mac-beta: updating mac-beta`. The row shows the `updating` badge, then `current`. In `/api/state`, mac-beta's `version` equals `agent`, `update` is false and `state` is `online`.
 - **Drawer.** Click mac-epsilon's link in its row. The drawer's Agent row ends in `(outdated)`. Run `t.click("#drawer-body button", "Update agent")` and `t.click("#confirm-yes")`. `(outdated)` goes away and `/api/state` has `agent_current` true.
-- **All.** Run `t.click("#up-agents button", "Update all outdated (1)")` and `t.click("#confirm-yes")`. A toast reads `Update all: 1 updating`. Every Mac with `self_update` becomes current. mac-zeta stays outdated and its row says `run cider-build add mac-zeta once`. The nav count drops to 2.
-- **Off.** On the `--no-updates` run, `t.nav("/")`, then `t.click('#nav a[href="#/updates"]')`. `#up-hub` reads `Hub updates are off: this hub has no update source.`, has one `.cmd` whose code is `bash ~/cider-build/bin/install.sh hub --set update_url=<git URL>` and whose only button is Copy, and no other button. The nav count shows `5` without `hub update available`. "Update agent" on mac-beta still reaches `current`.
+- **All.** Run `t.click("#up-agents button", "Update all outdated (2)")` and `t.click("#confirm-yes")`. The confirmation lists mac-alpha and linux-delta, and a toast reads `Update all: 2 updating`. Every machine with `self_update`, linux-delta included, becomes current. mac-zeta stays outdated and its row says `run cider-build add mac-zeta once`. The nav count drops to 2 (mac-gamma and mac-zeta).
+- **Off.** On the `--no-updates` run, `t.nav("/")`, then `t.click('#nav a[href="#/updates"]')`. `#up-hub` reads `Hub updates are off: this hub has no update source.`, has one `.cmd` whose code is `bash ~/cider-build/bin/install.sh hub --set update_url=<git URL>` and whose only button is Copy, and no other button. The nav count shows `6` without `hub update available`. "Update agent" on mac-beta still reaches `current`.
 - **Error.** Not in the journey. Move `/tmp/verify-hub/run-<id>/repo` away and click "Check for updates". `#up-hub` shows the git error and, since the seeded hub has no `update_ssh_key`, the note on how to get a key. Move the repository back afterwards.
 - **Proof.** `journeys/updates.mjs` takes screenshots of the hub section, the confirmation, the drawer and the final table, and reads every result again from `/api/state`. `journeys/updates-off.mjs` does the same for the off state.
 

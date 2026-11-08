@@ -420,7 +420,8 @@ def doctor(args):
         check(s["hub"]["url"] == st["canonical"], "%s answers as %s, so the port is ours" % (base, st["canonical"]))
         if st["mode"] == "seeded":
             fresh = [w for w in s["workers"] if w["state"] != "stale" and s["now"] - w["seen"] < 10]
-            check(len(fresh) == 4, "fake Macs sent a heartbeat in the last 10 s (%d of 4)" % len(fresh))
+            want = sum(1 for m in MACS.values() if m[5])
+            check(len(fresh) == want, "fake machines sent a heartbeat in the last 10 s (%d of %d)" % (len(fresh), want))
         code, headers, _ = request("GET", base + "/")
         csp = headers.get("Content-Security-Policy") or ""
         h = panel_hashes()
